@@ -1,308 +1,1171 @@
-def compare_excel_files(self):
-    """对比两个Excel文件，按指定语言顺序排列结果"""
-    try:
-        # 获取用户选择的语言
-        selected_languages = self.get_selected_languages()
-        print(f"调试: 选择的语言列表: {selected_languages}")
-        self.update_progress(0, f"已选择语言: {', '.join(selected_languages)}")
+import re
+import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+import threading
+from datetime import datetime
+import os
+import logging
+from difflib import SequenceMatcher
 
-        self.update_progress(5, "正在选择源文件...")
-        source_file = filedialog.askopenfilename(
-            title="选择源Excel文件",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+
+class CompleteDualDisplayTool:
+    def __init__(self, root):
+        self.root = root
+        self.progress = None
+        self.progress_label = None
+        self.selected_languages = []
+        self.language_checkboxes = []
+
+        # 设置日志
+        self.setup_logging()
+        self.setup_ui()
+
+    def setup_logging(self):
+        """设置日志系统"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('language_tool.log', encoding='utf-8'),
+                logging.StreamHandler()
+            ]
         )
-        if not source_file:
-            self.update_progress(0, "操作已取消")
-            return
-        print(f"调试: 源文件: {source_file}")
+        self.logger = logging.getLogger(__name__)
 
-        self.update_progress(10, "正在选择翻译文件...")
-        trans_file = filedialog.askopenfilename(
-            title="选择翻译Excel文件",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
-        )
-        if not trans_file:
-            self.update_progress(0, "操作已取消")
-            return
-        print(f"调试: 翻译文件: {trans_file}")
+    def setup_ui(self):
+        """设置用户界面"""
+        self.root.title("多语言文件对比工具 v2.0")
+        self.root.geometry("900x800")
+        self.root.configure(bg='#f0f0f0')
 
-        output_filename = self.get_output_filename("comparison_result")
-        output_file = filedialog.asksaveasfilename(
-            title="保存对比结果",
-            defaultextension=".xlsx",
-            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            initialfile=output_filename
-        )
-        if not output_file:
-            self.update_progress(0, "操作已取消")
-            return
-        print(f"调试: 输出文件: {output_file}")
+        # 创建主框架
+        main_frame = tk.Frame(self.root, bg='#f0f0f0')
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        self.update_progress(20, "正在加载文件...")
+        # 标题
+        title_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        title_frame.pack(pady=(0, 15))
 
-        # 加载工作簿
-        source_wb = openpyxl.load_workbook(source_file)
-        trans_wb = openpyxl.load_workbook(trans_file)
-        output_wb = openpyxl.Workbook()
+        tk.Label(title_frame, text="多语言文件对比工具",
+                 font=('Arial', 18, 'bold'), bg='#f0f0f0', fg='#2c3e50').pack()
 
-        source_ws = source_wb.active
-        trans_ws = trans_wb.active
-        output_ws = output_wb.active
-        output_ws.title = "对比结果"
+        # 说明标签
+        info_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        info_frame.pack(pady=(0, 10))
 
-        print(f"调试: 源文件工作表 - 行数: {source_ws.max_row}, 列数: {source_ws.max_column}")
-        print(f"调试: 翻译文件工作表 - 行数: {trans_ws.max_row}, 列数: {trans_ws.max_column}")
+        tk.Label(info_frame, text="支持三种独立的多语言对比功能",
+                 font=('Arial', 11), bg='#f0f0f0', fg='#3498db').pack()
+        tk.Label(info_frame, text="差异内容标记红色 | 一致内容标记绿色 | 缺失内容标记黄色",
+                 font=('Arial', 10), bg='#f0f0f0', fg='#e74c3c').pack()
 
-        # 定义颜色和样式
-        RED_FILL = PatternFill(start_color='FFFF0000', end_color='FFFF0000', fill_type='solid')
-        GREEN_FILL = PatternFill(start_color='FF00FF00', end_color='FF00FF00', fill_type='solid')
-        HEADER_FONT = Font(bold=True, size=12)
-        DIFF_FONT = Font(bold=True, color='FF0000')
-        MATCH_FONT = Font(color='006400')
-        HEADER_FILL = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
+        # 进度显示区域
+        self.setup_progress_section(main_frame)
 
-        # 设置列宽
-        output_ws.column_dimensions['A'].width = 25  # 键名
-        output_ws.column_dimensions['B'].width = 20  # 语言
-        output_ws.column_dimensions['C'].width = 30  # 源文件内容
-        output_ws.column_dimensions['D'].width = 30  # 翻译文件内容
-        output_ws.column_dimensions['E'].width = 15  # 对比结果
+        # 语言选择部分
+        self.setup_language_section(main_frame)
 
-        # 添加表头
-        headers = ["键名", "语言", "源文件内容", "翻译文件内容", "对比结果"]
-        output_ws.append(headers)
-        print("调试: 已添加表头")
+        # 功能按钮区域 - 使用Notebook标签页
+        self.setup_function_tabs(main_frame)
 
-        # 设置表头样式
-        for col in range(1, 6):
-            cell = output_ws.cell(row=1, column=col)
-            cell.font = HEADER_FONT
-            cell.fill = HEADER_FILL
+    def setup_progress_section(self, parent):
+        """设置进度显示区域"""
+        progress_frame = tk.LabelFrame(parent, text="进度", font=('Arial', 10, 'bold'),
+                                       bg='#f0f0f0', padx=10, pady=10)
+        progress_frame.pack(fill=tk.X, pady=10)
 
-        # 1. 找到中文列的索引
-        def find_chinese_col(ws, file_type):
-            chinese_names = ["中文（CN）", "中文(CN)", "中文", "Chinese", "CN"]
-            print(f"调试: 在{file_type}文件中查找中文列...")
-            for col in range(1, ws.max_column + 1):
-                header = str(ws.cell(row=1, column=col).value).strip()
-                print(f"调试: {file_type}文件第{col}列: '{header}'")
-                if any(name in header for name in chinese_names):
-                    print(f"调试: 找到中文列: 第{col}列 '{header}'")
-                    return col
-                if re.search(r'中[文国]|汉', header):
-                    print(f"调试: 通过正则找到中文列: 第{col}列 '{header}'")
-                    return col
-            print(f"调试: 未找到中文列，使用第1列")
-            return 1
+        self.progress_label = tk.Label(progress_frame, text="准备就绪",
+                                       anchor=tk.W, font=('Arial', 9), bg='#f0f0f0')
+        self.progress_label.pack(fill=tk.X)
 
-        source_cn_col = find_chinese_col(source_ws, "源")
-        trans_cn_col = find_chinese_col(trans_ws, "翻译")
-        print(f"调试: 源文件中文列: {source_cn_col}, 翻译文件中文列: {trans_cn_col}")
+        self.progress = ttk.Progressbar(progress_frame, orient=tk.HORIZONTAL,
+                                        mode='determinate')
+        self.progress.pack(fill=tk.X, pady=(5, 0))
 
-        # 2. 构建键映射
-        def build_key_map(ws, cn_col, file_type):
-            key_map = {}
-            print(f"调试: 构建{file_type}文件键映射，使用第{cn_col}列作为键")
-            for row in range(2, ws.max_row + 1):
-                key = ws.cell(row=row, column=cn_col).value
-                if key is not None:
-                    try:
-                        key_str = str(key).strip()
-                        if key_str:
-                            key_map[key_str] = row
-                            if len(key_map) <= 5:  # 只打印前5个键用于调试
-                                print(f"调试: {file_type}文件键 '{key_str}' -> 行 {row}")
-                    except Exception as e:
-                        print(f"调试: 处理{file_type}文件行{row}时出错: {e}")
-            print(f"调试: {file_type}文件总共找到 {len(key_map)} 个键")
-            return key_map
+    def setup_language_section(self, parent):
+        """设置语言选择区域"""
+        lang_frame = tk.LabelFrame(parent, text="选择对比语言",
+                                   font=('Arial', 10, 'bold'), padx=15, pady=15)
+        lang_frame.pack(fill=tk.X, pady=10)
 
-        source_key_map = build_key_map(source_ws, source_cn_col, "源")
-        trans_key_map = build_key_map(trans_ws, trans_cn_col, "翻译")
+        # 标准语言顺序
+        self.LANGUAGE_ORDER = [
+            "中文（CN）", "英文（EN）English", "德语(DE)Deutsch",
+            "西语（ES）Español", "法语(FR)Français", "意大利语(IT)Italiano",
+            "巴西葡语(BR)Português", "俄语（Pyc）Русский", "土耳其语(TR)Turkish",
+            "日语(JP)日本語", "韩语(KR)한국어", "繁体中文", "阿拉伯语عربية"
+        ]
 
-        # 3. 收集所有键
-        all_keys = set()
-        for k in source_key_map:
-            try:
-                all_keys.add(str(k).strip())
-            except:
-                pass
+        # 创建语言选择网格
+        self.language_vars = []
+        inner_frame = tk.Frame(lang_frame, bg='#f0f0f0')
+        inner_frame.pack(fill=tk.X)
 
-        for k in trans_key_map:
-            try:
-                all_keys.add(str(k).strip())
-            except:
-                pass
+        for i, lang in enumerate(self.LANGUAGE_ORDER):
+            var = tk.IntVar(value=1)
+            self.language_vars.append(var)
+            cb = tk.Checkbutton(inner_frame, text=lang, variable=var,
+                                font=('Arial', 9), bg='#f0f0f0', anchor='w')
+            cb.grid(row=i // 5, column=i % 5, sticky=tk.W + tk.E,
+                    padx=5, pady=2)
+            inner_frame.columnconfigure(i % 5, weight=1)
 
-        print(f"调试: 总共找到 {len(all_keys)} 个唯一键")
+        # 全选/取消全选按钮
+        btn_frame = tk.Frame(lang_frame, bg='#f0f0f0')
+        btn_frame.pack(pady=(10, 0))
 
-        # 4. 安全排序
-        def safe_key_func(k):
-            try:
-                return str(k).lower()
-            except:
-                return ""
+        tk.Button(btn_frame, text="全选", command=self.select_all_languages,
+                  font=('Arial', 9), width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="取消全选", command=self.deselect_all_languages,
+                  font=('Arial', 9), width=10).pack(side=tk.LEFT, padx=5)
 
-        sorted_keys = sorted(all_keys, key=safe_key_func)
-        print(f"调试: 前5个排序后的键: {sorted_keys[:5]}")
+    def setup_function_tabs(self, parent):
+        """设置功能标签页"""
+        # 创建Notebook
+        notebook = ttk.Notebook(parent)
+        notebook.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        # 5. 定义语言列映射
-        def build_lang_col_map(ws):
-            lang_map = {}
-            print(f"调试: 构建语言列映射...")
-            for col in range(1, ws.max_column + 1):
-                header = str(ws.cell(row=1, column=col).value).strip()
-                lang_map[header] = col
-                print(f"调试: 列{col}: '{header}'")
-            print(f"调试: 总共找到 {len(lang_map)} 个语言列")
-            return lang_map
+        # 功能一：代码转Excel
+        tab1 = ttk.Frame(notebook)
+        notebook.add(tab1, text="功能一: 代码转Excel")
+        self.setup_tab1_content(tab1)
 
-        source_lang_map = build_lang_col_map(source_ws)
-        trans_lang_map = build_lang_col_map(trans_ws)
+        # 功能二：Excel对比
+        tab2 = ttk.Frame(notebook)
+        notebook.add(tab2, text="功能二: Excel对比")
+        self.setup_tab2_content(tab2)
 
-        # 找出共同的语言
-        common_langs_all = set(source_lang_map.keys()) & set(trans_lang_map.keys())
-        print(f"调试: 两文件共同的语言列: {common_langs_all}")
+        # 功能三：错误码校对
+        tab3 = ttk.Frame(notebook)
+        notebook.add(tab3, text="功能三: 错误码校对")
+        self.setup_tab3_content(tab3)
 
-        # 只保留用户选择的语言
-        common_langs = [lang for lang in common_langs_all if lang in selected_languages]
-        print(f"调试: 用户选择的共同语言: {common_langs}")
+    def setup_tab1_content(self, parent):
+        """设置功能一内容"""
+        content_frame = tk.Frame(parent, padx=20, pady=20)
+        content_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 按照LANGUAGE_ORDER排序
-        common_langs_sorted = sorted(common_langs,
-                                     key=lambda x: self.LANGUAGE_ORDER.index(
-                                         x) if x in self.LANGUAGE_ORDER else len(self.LANGUAGE_ORDER))
-        print(f"调试: 排序后的语言顺序: {common_langs_sorted}")
+        # 功能说明
+        desc_frame = tk.Frame(content_frame)
+        desc_frame.pack(fill=tk.X, pady=(0, 20))
 
-        # 6. 执行对比 - 只对比用户选择的语言
-        differences_found = False
-        output_row = 2  # 从第2行开始输出
-        total_comparisons = 0
+        tk.Label(desc_frame, text="功能说明:", font=('Arial', 11, 'bold')).pack(anchor=tk.W)
+        tk.Label(desc_frame, text="• 将C语言多语言代码文件转换为Excel格式",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 自动解析代码中的多语言数组",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 生成标准的多语言Excel文件",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
 
-        print(f"调试: 开始对比 {len(sorted_keys)} 个键...")
+        # 按钮
+        btn_frame = tk.Frame(content_frame)
+        btn_frame.pack(pady=20)
 
-        for i, cn_key in enumerate(sorted_keys):
-            src_row = source_key_map.get(cn_key)
-            trans_row = trans_key_map.get(cn_key)
+        tk.Button(btn_frame, text="开始转换代码文件",
+                  command=self.start_conversion_thread,
+                  font=('Arial', 12), width=25, height=2,
+                  bg='#2ecc71', fg='white').pack()
 
-            print(f"调试: 处理键 '{cn_key}' - 源文件行: {src_row}, 翻译文件行: {trans_row}")
+    def setup_tab2_content(self, parent):
+        """设置功能二内容"""
+        content_frame = tk.Frame(parent, padx=20, pady=20)
+        content_frame.pack(fill=tk.BOTH, expand=True)
 
-            for lang in common_langs_sorted:
-                if lang == "中文（CN）":
-                    continue  # 跳过中文列，因为它是我们的键
+        # 功能说明
+        desc_frame = tk.Frame(content_frame)
+        desc_frame.pack(fill=tk.X, pady=(0, 20))
 
-                # 获取值
-                src_val = ""
-                if src_row:
-                    try:
-                        src_val = str(source_ws.cell(
-                            row=src_row,
-                            column=source_lang_map[lang]
-                        ).value or "")
-                    except:
-                        src_val = ""
+        tk.Label(desc_frame, text="功能说明:", font=('Arial', 11, 'bold')).pack(anchor=tk.W)
+        tk.Label(desc_frame, text="• 对比两个Excel文件的多语言内容",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 按键名匹配行，按语言顺序对比",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 标记差异(红)、一致(绿)、缺失(黄)",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 以源文件为准，标记对比文件中缺失的内容",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
 
-                trans_val = ""
-                if trans_row:
-                    try:
-                        trans_val = str(trans_ws.cell(
-                            row=trans_row,
-                            column=trans_lang_map[lang]
-                        ).value or "")
-                    except:
-                        trans_val = ""
+        # 按钮
+        btn_frame = tk.Frame(content_frame)
+        btn_frame.pack(pady=20)
 
-                print(f"调试: 语言 '{lang}' - 源值: '{src_val}', 翻译值: '{trans_val}'")
+        tk.Button(btn_frame, text="开始Excel文件对比",
+                  command=self.start_comparison_thread,
+                  font=('Arial', 12), width=25, height=2,
+                  bg='#e67e22', fg='white').pack()
 
-                # 写入键名（只在该语言组的第一行写入）
-                if lang == common_langs_sorted[0]:
-                    output_ws.cell(row=output_row, column=1).value = cn_key
-                    output_ws.cell(row=output_row, column=1).font = Font(bold=True)
+    def setup_tab3_content(self, parent):
+        """设置功能三内容"""
+        content_frame = tk.Frame(parent, padx=20, pady=20)
+        content_frame.pack(fill=tk.BOTH, expand=True)
 
-                # 写入语言标签
-                output_ws.cell(row=output_row, column=2).value = lang
+        # 功能说明
+        desc_frame = tk.Frame(content_frame)
+        desc_frame.pack(fill=tk.X, pady=(0, 20))
 
-                # 写入源内容
-                output_ws.cell(row=output_row, column=3).value = src_val
+        tk.Label(desc_frame, text="功能说明:", font=('Arial', 11, 'bold')).pack(anchor=tk.W)
+        tk.Label(desc_frame, text="• 通过错误码数字进行模糊匹配",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 源文件格式: 支持AC1234 (2字母+4数字)和纯4位数字",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 对比文件格式: 支持多种格式的模糊匹配",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 以源文件为准，按选择语言对比所有数据",
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+        tk.Label(desc_frame, text="• 使用上方语言选择区域选择要对比的语言",
+                 font=('Arial', 10, 'bold'), justify=tk.LEFT, fg='#e74c3c').pack(anchor=tk.W, pady=2)
 
-                # 写入翻译内容
-                output_ws.cell(row=output_row, column=4).value = trans_val
+        # 按钮
+        btn_frame = tk.Frame(content_frame)
+        btn_frame.pack(pady=20)
 
-                # 对比并标记结果
-                if src_val.strip() == trans_val.strip():
-                    output_ws.cell(row=output_row, column=5).value = "✓ 一致"
-                    output_ws.cell(row=output_row, column=5).font = MATCH_FONT
-                    output_ws.cell(row=output_row, column=3).fill = GREEN_FILL
-                    output_ws.cell(row=output_row, column=4).fill = GREEN_FILL
-                    print(f"调试: 键 '{cn_key}' 语言 '{lang}' - 一致")
+        tk.Button(btn_frame, text="开始错误码校对",
+                  command=self.start_error_code_check_thread,
+                  font=('Arial', 12), width=25, height=2,
+                  bg='#9b59b6', fg='white').pack()
+
+        # 退出按钮
+        exit_frame = tk.Frame(content_frame)
+        exit_frame.pack(side=tk.BOTTOM, pady=20)
+
+        tk.Button(exit_frame, text="退出程序",
+                  command=self.root.quit,
+                  font=('Arial', 10), width=15, height=1,
+                  bg='#95a5a6', fg='white').pack()
+
+    # ==================== 功能一：代码转Excel ====================
+    def convert_code_to_excel(self):
+        """将C语言多语言代码转换为Excel"""
+        try:
+            self.update_progress(0, "正在选择代码文件...")
+
+            code_file = filedialog.askopenfilename(
+                title="选择代码文件",
+                filetypes=[("C files", "*.c *.h"), ("All files", "*.*")]
+            )
+            if not code_file:
+                self.update_progress(0, "操作已取消")
+                return
+
+            output_filename = self.get_output_filename("mutilanguagetest")
+            output_excel = filedialog.asksaveasfilename(
+                title="保存转换后的Excel文件",
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                initialfile=output_filename
+            )
+            if not output_excel:
+                self.update_progress(0, "操作已取消")
+                return
+
+            self.update_progress(20, "正在读取代码文件...")
+            with open(code_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            self.update_progress(30, "正在解析代码结构...")
+            # 创建Excel工作簿
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Translations"
+
+            # 添加表头
+            headers = ["Key"] + self.LANGUAGE_ORDER
+            ws.append(headers)
+
+            # 匹配多语言数组
+            pattern = re.compile(
+                r'const char \*(.*?)\[MAX_LANGUAGE\]\s*=\s*\{([^}]*)\};',
+                re.DOTALL
+            )
+
+            matches = list(pattern.finditer(content))
+            total_matches = len(matches)
+
+            self.update_progress(40, f"发现{total_matches}个多语言条目...")
+
+            for i, match in enumerate(matches):
+                key = match.group(1).strip()
+                values_block = match.group(2)
+
+                # 提取各语言字符串（处理可能的多行情况）
+                values = re.findall(r'"(.*?)"', values_block.replace("\n", ""))
+
+                # 写入Excel行
+                row = [key] + values[:len(headers) - 1]  # 确保不超过语言列数
+                ws.append(row)
+
+                progress = 40 + (i / total_matches) * 50
+                self.update_progress(progress, f"正在处理 {i + 1}/{total_matches}...")
+
+            self.update_progress(95, "正在保存Excel文件...")
+            wb.save(output_excel)
+
+            self.update_progress(100, "转换完成！")
+            messagebox.showinfo("成功", f"转换成功:\n{os.path.basename(output_excel)}")
+
+        except Exception as e:
+            self.update_progress(0, f"错误: {str(e)}")
+            messagebox.showerror("错误", f"转换失败:\n{str(e)}")
+        finally:
+            self.root.after(2000, lambda: self.update_progress(0, "准备就绪"))
+
+    # ==================== 功能二：Excel文件对比 ====================
+    def compare_excel_files(self):
+        """对比两个Excel文件，按指定语言顺序排列结果"""
+        try:
+            # 获取用户选择的语言
+            selected_languages = self.get_selected_languages()
+            self.update_progress(0, f"已选择语言: {', '.join(selected_languages)}")
+
+            self.update_progress(5, "正在选择源文件...")
+            source_file = filedialog.askopenfilename(
+                title="选择源Excel文件",
+                filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+            )
+            if not source_file:
+                self.update_progress(0, "操作已取消")
+                return
+
+            self.update_progress(10, "正在选择翻译文件...")
+            trans_file = filedialog.askopenfilename(
+                title="选择翻译Excel文件",
+                filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+            )
+            if not trans_file:
+                self.update_progress(0, "操作已取消")
+                return
+
+            output_filename = self.get_output_filename("comparison_result")
+            output_file = filedialog.asksaveasfilename(
+                title="保存对比结果",
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                initialfile=output_filename
+            )
+            if not output_file:
+                self.update_progress(0, "操作已取消")
+                return
+
+            self.update_progress(20, "正在加载文件...")
+
+            # 加载工作簿
+            source_wb = openpyxl.load_workbook(source_file)
+            trans_wb = openpyxl.load_workbook(trans_file)
+            output_wb = openpyxl.Workbook()
+
+            source_ws = source_wb.active
+            trans_ws = trans_wb.active
+            output_ws = output_wb.active
+            output_ws.title = "对比结果"
+
+            # 定义颜色和样式
+            RED_FILL = PatternFill(start_color='FFFF0000', end_color='FFFF0000', fill_type='solid')
+            GREEN_FILL = PatternFill(start_color='FF00FF00', end_color='FF00FF00', fill_type='solid')
+            YELLOW_FILL = PatternFill(start_color='FFFFFF00', end_color='FFFFFF00', fill_type='solid')
+            HEADER_FONT = Font(bold=True, size=12)
+            DIFF_FONT = Font(bold=True, color='FF0000')
+            MATCH_FONT = Font(color='006400')
+            MISSING_FONT = Font(bold=True, color='FFA500')
+            HEADER_FILL = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
+
+            # 设置列宽
+            output_ws.column_dimensions['A'].width = 25
+            output_ws.column_dimensions['B'].width = 25
+            output_ws.column_dimensions['C'].width = 20
+            output_ws.column_dimensions['D'].width = 30
+            output_ws.column_dimensions['E'].width = 30
+            output_ws.column_dimensions['F'].width = 15
+
+            # 添加表头
+            headers = ["源文件键名", "翻译文件键名", "语言", "源文件内容", "翻译文件内容", "对比结果"]
+            output_ws.append(headers)
+
+            # 设置表头样式
+            for col in range(1, 7):
+                cell = output_ws.cell(row=1, column=col)
+                cell.font = HEADER_FONT
+                cell.fill = HEADER_FILL
+
+            def debug_sheet_info(ws, name):
+                """调试函数：打印工作表信息"""
+                print(f"\n=== {name} 工作表信息 ===")
+                print(f"总行数: {ws.max_row}")
+                print(f"总列数: {ws.max_column}")
+
+                # 打印前几行的内容
+                for row in range(1, min(4, ws.max_row + 1)):
+                    row_data = []
+                    for col in range(1, min(ws.max_column + 1, 15)):  # 最多打印15列
+                        cell_value = ws.cell(row=row, column=col).value
+                        row_data.append(f"'{cell_value}'" if cell_value else "None")
+                    print(f"行 {row}: [{', '.join(row_data)}]")
+
+            # 调试信息
+            debug_sheet_info(source_ws, "源文件")
+            debug_sheet_info(trans_ws, "翻译文件")
+
+            def build_key_map(ws, file_type):
+                """构建键名到行号的映射 - 增强版本"""
+                key_map = {}
+                print(f"\n=== 开始构建 {file_type} 键映射 ===")
+
+                # 首先确定键名所在的列
+                key_column = 1  # 默认第一列
+
+                # 检查第一行，看是否有"Key"或"键名"等标识
+                header_row = 1
+                for col in range(1, ws.max_column + 1):
+                    header_value = ws.cell(row=header_row, column=col).value
+                    if header_value and any(keyword in str(header_value).lower()
+                                            for keyword in ['key', '键名', '键', '标识', 'id']):
+                        key_column = col
+                        print(f"发现键名列: 第{col}列 ('{header_value}')")
+                        break
+
+                for row in range(2, ws.max_row + 1):
+                    key_cell = ws.cell(row=row, column=key_column)
+                    key_value = key_cell.value
+
+                    if key_value is not None:
+                        try:
+                            key_str = str(key_value).strip()
+                            if key_str:
+                                key_map[key_str] = row
+                                if len(key_map) <= 5:  # 只打印前5个键用于调试
+                                    print(f"{file_type} 键 {len(key_map)}: '{key_str}' 在行 {row}")
+                        except Exception as e:
+                            print(f"处理{file_type}文件行{row}时出错: {e}")
+
+                print(f"=== {file_type} 总共找到 {len(key_map)} 个键 ===")
+                return key_map, key_column
+
+            # 构建键映射
+            source_key_map, source_key_col = build_key_map(source_ws, "源")
+            trans_key_map, trans_key_col = build_key_map(trans_ws, "翻译")
+
+            def build_lang_col_map(ws, file_type):
+                """构建语言列映射 - 完全匹配实际表头"""
+                lang_map = {}
+                print(f"\n=== 构建 {file_type} 语言列映射 ===")
+
+                # 收集所有表头
+                all_headers = []
+                for col in range(1, ws.max_column + 1):
+                    header_value = ws.cell(row=1, column=col).value
+                    if header_value is not None:
+                        header_str = str(header_value).strip()
+                        all_headers.append((col, header_str))
+                        print(f"{file_type} 列 {col}: '{header_str}'")
+
+                # 基于实际表头构建映射
+                header_mapping = {
+                    # 源文件的实际表头映射
+                    "中文（CN）": "中文（CN）",
+                    "英文（EN）English": "英文（EN）English",
+
+                    # 翻译文件的实际表头映射
+                    "中文（CN）": "中文（CN）",
+                    "英文（EN）English": "英文（EN）English",
+                    "德语(DE)Deutsch": "德语(DE)Deutsch",
+                    "西语（ES）Español": "西语（ES）Español",
+                    "法语(FR)Français": "法语(FR)Français",
+                    "意大利语(IT)Italiano": "意大利语(IT)Italiano",
+                    "巴西葡语(BR)Português": "巴西葡语(BR)Português",
+                    "俄语（Pyc）Русский": "俄语（Pyc）Русский",
+                    "土耳其语(TR)Turkish": "土耳其语(TR)Turkish",
+                    "日语(JP)日本語": "日语(JP)日本語",
+                    "韩语(KR)한국어": "韩语(KR)한국어",
+                    "繁体中文": "繁体中文",
+                    "阿拉伯语عربية": "阿拉伯语عربية"
+                }
+
+                for col, header in all_headers:
+                    # 直接精确匹配
+                    if header in header_mapping:
+                        lang_name = header_mapping[header]
+                        lang_map[lang_name] = col
+                        print(f"{file_type} 匹配: '{header}' -> '{lang_name}' 在第 {col} 列")
+                    else:
+                        # 尝试模糊匹配
+                        header_lower = header.lower()
+                        for lang_name in header_mapping.values():
+                            if any(keyword in header_lower for keyword in [lang_name[:2].lower(),
+                                                                           lang_name.split('（')[
+                                                                               0].lower() if '（' in lang_name else lang_name[
+                                                                               :2].lower()]):
+                                if lang_name not in lang_map:
+                                    lang_map[lang_name] = col
+                                    print(f"{file_type} 模糊匹配: '{header}' -> '{lang_name}' 在第 {col} 列")
+                                break
+
+                print(f"{file_type} 最终语言映射: {lang_map}")
+                return lang_map
+
+            source_lang_map = build_lang_col_map(source_ws, "源文件")
+            trans_lang_map = build_lang_col_map(trans_ws, "翻译文件")
+
+            # 构建对比语言列表 - 基于两个文件都存在的语言
+            comparison_langs = []
+            for lang in selected_languages:
+                if lang in source_lang_map and lang in trans_lang_map:
+                    comparison_langs.append(lang)
+                    print(
+                        f"将对比语言: {lang} (源文件第 {source_lang_map[lang]} 列, 翻译文件第 {trans_lang_map[lang]} 列)")
                 else:
-                    output_ws.cell(row=output_row, column=5).value = "✗ 差异"
-                    output_ws.cell(row=output_row, column=5).font = DIFF_FONT
-                    output_ws.cell(row=output_row, column=3).fill = RED_FILL
-                    output_ws.cell(row=output_row, column=4).fill = RED_FILL
-                    differences_found = True
-                    print(f"调试: 键 '{cn_key}' 语言 '{lang}' - 发现差异")
+                    if lang not in source_lang_map:
+                        print(f"警告: 源文件中未找到语言列: {lang}")
+                    if lang not in trans_lang_map:
+                        print(f"警告: 翻译文件中未找到语言列: {lang}")
 
-                output_row += 1
-                total_comparisons += 1
+            print(f"最终对比语言列表: {comparison_langs}")
 
-            # 添加空行分隔不同键
-            output_row += 1
+            # 由于键名不匹配，我们需要基于内容进行匹配
+            def find_translation_by_content(source_text, trans_ws, trans_lang_map, lang):
+                """通过内容在翻译文件中查找匹配的翻译"""
+                if not source_text or not source_text.strip():
+                    return None, None
 
-            # 更新进度
-            progress = 40 + (i / len(sorted_keys)) * 50
-            self.update_progress(progress, f"正在对比 {i + 1}/{len(sorted_keys)}...")
+                trans_col = trans_lang_map.get(lang)
+                if not trans_col:
+                    return None, None
 
-        print(f"调试: 总共完成了 {total_comparisons} 次对比")
-        print(f"调试: 发现差异: {differences_found}")
+                source_text_clean = source_text.strip().lower()
 
-        # 添加总结信息
-        summary_row = output_row + 2
-        output_ws.cell(row=summary_row, column=1).value = "对比总结"
-        output_ws.cell(row=summary_row, column=1).font = HEADER_FONT
+                # 在翻译文件中搜索匹配的内容
+                for row in range(2, trans_ws.max_row + 1):
+                    try:
+                        trans_cell = trans_ws.cell(row=row, column=trans_col)
+                        trans_value = str(trans_cell.value) if trans_cell.value is not None else ""
+                        trans_value_clean = trans_value.strip().lower()
 
-        if differences_found:
-            output_ws.cell(row=summary_row + 1, column=1).value = "发现差异内容已用红色标记"
-            output_ws.cell(row=summary_row + 1, column=1).font = DIFF_FONT
+                        if trans_value_clean == source_text_clean:
+                            # 找到匹配，返回键名和行号
+                            key_cell = trans_ws.cell(row=row, column=1)  # 第一列是Key
+                            key_value = str(key_cell.value) if key_cell.value is not None else ""
+                            return key_value, row
+                    except Exception as e:
+                        continue
+
+                return None, None
+
+            # 执行对比
+            differences_found = False
+            output_row = 2
+            total_comparisons = 0
+            content_matches = 0
+            no_matches = 0
+
+            if not comparison_langs:
+                output_ws.cell(row=2, column=1).value = "错误：未找到可对比的语言列"
+                output_ws.cell(row=2, column=1).font = Font(bold=True, color='FF0000')
+            else:
+                for i, source_key in enumerate(source_key_map.keys()):
+                    src_row = source_key_map[source_key]
+
+                    # 记录这个键是否进行了任何对比
+                    key_compared = False
+
+                    for lang in comparison_langs:
+                        # 检查语言列在源文件中是否存在
+                        source_col = source_lang_map.get(lang)
+                        if not source_col:
+                            continue
+
+                        # 获取源文件值
+                        src_val = ""
+                        if src_row:
+                            try:
+                                src_cell = source_ws.cell(row=src_row, column=source_col)
+                                src_val = str(src_cell.value) if src_cell.value is not None else ""
+                            except Exception as e:
+                                src_val = "【读取错误】"
+
+                        # 通过内容查找翻译文件中的匹配项
+                        trans_key, trans_row = find_translation_by_content(src_val, trans_ws, trans_lang_map, lang)
+
+                        # 获取翻译文件值
+                        trans_val = ""
+                        trans_col = trans_lang_map.get(lang)
+
+                        if trans_row and trans_col:
+                            try:
+                                trans_cell = trans_ws.cell(row=trans_row, column=trans_col)
+                                trans_val = str(trans_cell.value) if trans_cell.value is not None else ""
+                                content_matches += 1
+                            except Exception as e:
+                                trans_val = "【读取错误】"
+                        elif not trans_row:
+                            trans_val = "【内容未匹配】"
+                            no_matches += 1
+                        elif not trans_col:
+                            trans_val = "【对比文件缺失语言列】"
+                        else:
+                            trans_val = "【未知错误】"
+
+                        # 写入键名（只在该语言组的第一行写入）
+                        if not key_compared:
+                            output_ws.cell(row=output_row, column=1).value = source_key
+                            output_ws.cell(row=output_row, column=1).font = Font(bold=True)
+                            output_ws.cell(row=output_row, column=2).value = trans_key if trans_key else "无匹配键名"
+                            key_compared = True
+
+                        # 写入语言标签
+                        output_ws.cell(row=output_row, column=3).value = lang
+
+                        # 写入源内容
+                        output_ws.cell(row=output_row, column=4).value = src_val
+
+                        # 写入翻译内容
+                        output_ws.cell(row=output_row, column=5).value = trans_val
+
+                        # 对比并标记结果
+                        if "内容未匹配" in trans_val:
+                            output_ws.cell(row=output_row, column=6).value = "⚠ 内容未匹配"
+                            output_ws.cell(row=output_row, column=6).font = MISSING_FONT
+                            output_ws.cell(row=output_row, column=4).fill = YELLOW_FILL
+                            differences_found = True
+                        elif "缺失语言列" in trans_val:
+                            output_ws.cell(row=output_row, column=6).value = "⚠ 语言列缺失"
+                            output_ws.cell(row=output_row, column=6).font = MISSING_FONT
+                            output_ws.cell(row=output_row, column=4).fill = YELLOW_FILL
+                            differences_found = True
+                        elif src_val == trans_val:
+                            output_ws.cell(row=output_row, column=6).value = "✓ 一致"
+                            output_ws.cell(row=output_row, column=6).font = MATCH_FONT
+                            output_ws.cell(row=output_row, column=4).fill = GREEN_FILL
+                            output_ws.cell(row=output_row, column=5).fill = GREEN_FILL
+                        else:
+                            output_ws.cell(row=output_row, column=6).value = "✗ 差异"
+                            output_ws.cell(row=output_row, column=6).font = DIFF_FONT
+                            output_ws.cell(row=output_row, column=4).fill = RED_FILL
+                            output_ws.cell(row=output_row, column=5).fill = RED_FILL
+                            differences_found = True
+
+                        output_row += 1
+                        total_comparisons += 1
+
+                    # 如果这个键进行了对比，添加空行分隔
+                    if key_compared:
+                        output_row += 1
+
+                    # 更新进度
+                    progress = 40 + (i / len(source_key_map)) * 50
+                    if i % 10 == 0 or i == len(source_key_map) - 1:
+                        self.update_progress(progress, f"正在对比 {i + 1}/{len(source_key_map)}...")
+
+            # 添加总结信息
+            if total_comparisons > 0:
+                summary_row = output_row + 2
+                output_ws.cell(row=summary_row, column=1).value = "对比总结"
+                output_ws.cell(row=summary_row, column=1).font = HEADER_FONT
+
+                summary_text = [
+                    f"源文件键数: {len(source_key_map)}",
+                    f"完成对比: {total_comparisons} 次",
+                    f"内容匹配: {content_matches} 个",
+                    f"未匹配: {no_matches} 个"
+                ]
+
+                if differences_found:
+                    summary_text.append("发现差异内容")
+                else:
+                    summary_text.append("所有内容完全一致")
+
+                for i, text in enumerate(summary_text):
+                    output_ws.cell(row=summary_row + 1 + i, column=1).value = text
+
+            else:
+                output_ws.cell(row=2, column=1).value = "未找到可对比的数据"
+                output_ws.cell(row=2, column=1).font = Font(bold=True, color='FF0000')
+
+            self.update_progress(95, "正在保存结果...")
+            output_wb.save(output_file)
+
+            msg = "对比完成！\n\n"
+            msg += f"结果已保存到:\n{os.path.basename(output_file)}"
+            msg += f"\n\n统计信息:"
+            msg += f"\n- 源文件键数: {len(source_key_map)}"
+            msg += f"\n- 完成对比: {total_comparisons} 次"
+            msg += f"\n- 内容匹配: {content_matches} 个"
+            msg += f"\n- 未匹配: {no_matches} 个"
+
+            self.update_progress(100, "对比完成！")
+            messagebox.showinfo("完成", msg)
+
+        except Exception as e:
+            self.logger.error(f"对比过程中出错: {e}")
+            import traceback
+            traceback.print_exc()
+            self.update_progress(0, f"错误: {str(e)}")
+            messagebox.showerror("错误", f"对比失败:\n{str(e)}")
+        finally:
+            self.root.after(2000, lambda: self.update_progress(0, "准备就绪"))
+
+    # ==================== 功能三：错误码校对 ====================
+    def start_error_code_check_thread(self):
+        """启动错误码校对线程"""
+        thread = threading.Thread(target=self.error_code_check, daemon=True)
+        thread.start()
+
+    def extract_error_code_flexible(self, key):
+        """灵活提取错误码 - 支持去除前导零的匹配"""
+        if not key:
+            return None
+
+        key_str = str(key).strip()
+
+        # 查找所有连续数字序列
+        digit_sequences = re.findall(r'\d+', key_str)
+
+        if not digit_sequences:
+            return None
+
+        # 选择最长的数字序列
+        longest_digits = max(digit_sequences, key=len)
+
+        # 返回原始数字和去除前导零的版本
+        return {
+            'original': longest_digits,
+            'no_leading_zero': longest_digits.lstrip('0') or '0'  # 防止全部是零的情况
+        }
+
+    def find_matching_trans_key_improved(self, source_key, trans_keys):
+        """改进的错误码匹配 - 支持去除前导零的灵活匹配"""
+        source_digits_info = self.extract_error_code_flexible(source_key)
+        if not source_digits_info:
+            return None
+
+        source_original = source_digits_info['original']
+        source_no_zero = source_digits_info['no_leading_zero']
+
+        best_match = None
+        best_score = 0
+
+        self.logger.debug(f"为源文件键 '{source_key}' 查找匹配，数字: {source_original} -> {source_no_zero}")
+
+        for trans_key in trans_keys:
+            trans_digits_info = self.extract_error_code_flexible(trans_key)
+            if not trans_digits_info:
+                continue
+
+            trans_original = trans_digits_info['original']
+            trans_no_zero = trans_digits_info['no_leading_zero']
+
+            # 多种匹配条件
+            match_found = (
+                # 原始数字完全匹配
+                    source_original == trans_original or
+                    # 去除前导零后匹配
+                    source_no_zero == trans_no_zero or
+                    # 源有前导零，对比文件没有
+                    source_original == '0' + trans_no_zero or
+                    # 对比文件有前导零，源没有
+                    '0' + source_no_zero == trans_original
+            )
+
+            if match_found:
+                # 计算键名相似度
+                score = SequenceMatcher(None, source_key.lower(), trans_key.lower()).ratio()
+                self.logger.debug(
+                    f"候选匹配: {source_key} -> {trans_key} (数字: {source_original}~{source_no_zero} == {trans_original}~{trans_no_zero}, 相似度: {score:.2f})")
+
+                if score > best_score:
+                    best_score = score
+                    best_match = trans_key
+
+        if best_match:
+            self.logger.info(f"找到匹配: {source_key} -> {best_match} (相似度: {best_score:.2f})")
         else:
-            output_ws.cell(row=summary_row + 1, column=1).value = "所有内容完全一致"
-            output_ws.cell(row=summary_row + 1, column=1).font = MATCH_FONT
+            self.logger.debug(f"未找到匹配: {source_key}")
 
-        # 添加颜色说明
-        output_ws.cell(row=summary_row + 3, column=1).value = "颜色说明:"
-        output_ws.cell(row=summary_row + 3, column=1).font = Font(bold=True)
+        return best_match
 
-        # 绿色说明
-        green_cell = output_ws.cell(row=summary_row + 4, column=1)
-        green_cell.value = "绿色: 内容完全一致"
-        green_cell.fill = GREEN_FILL
+    def error_code_check(self):
+        """错误码多语言校对功能 - 支持多语言对比"""
+        try:
+            # 获取用户选择的语言
+            selected_languages = self.get_selected_languages()
+            self.update_progress(0, f"错误码校对 - 已选择语言: {', '.join(selected_languages)}")
 
-        # 红色说明
-        red_cell = output_ws.cell(row=summary_row + 5, column=1)
-        red_cell.value = "红色: 内容存在差异"
-        red_cell.fill = RED_FILL
+            self.update_progress(5, "正在选择源文件...")
+            source_file = filedialog.askopenfilename(
+                title="选择源Excel文件",
+                filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+            )
+            if not source_file:
+                self.update_progress(0, "操作已取消")
+                return
 
-        self.update_progress(95, "正在保存结果...")
-        output_wb.save(output_file)
+            self.update_progress(10, "正在选择翻译文件...")
+            trans_file = filedialog.askopenfilename(
+                title="选择翻译Excel文件",
+                filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+            )
+            if not trans_file:
+                self.update_progress(0, "操作已取消")
+                return
 
-        msg = "对比完成！\n\n"
-        msg += "结果文件格式说明:\n"
-        msg += "- 第1列: 键名\n"
-        msg += "- 第2列: 语言标签\n"
-        msg += "- 第3列: 源文件内容\n"
-        msg += "- 第4列: 翻译文件内容\n"
-        msg += "- 第5列: 对比结果\n\n"
-        msg += f"结果已保存到:\n{os.path.basename(output_file)}"
-        msg += f"\n\n调试信息: 完成了 {total_comparisons} 次对比"
+            output_filename = self.get_output_filename("error_code_check")
+            output_file = filedialog.asksaveasfilename(
+                title="保存错误码校对结果",
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                initialfile=output_filename
+            )
+            if not output_file:
+                self.update_progress(0, "操作已取消")
+                return
 
-        self.update_progress(100, "对比完成！")
-        messagebox.showinfo("完成", msg)
+            self.update_progress(20, "正在加载文件...")
 
-    except Exception as e:
-        print(f"调试: 发生异常: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        self.update_progress(0, f"错误: {str(e)}")
-        messagebox.showerror("错误", f"对比失败:\n{str(e)}")
-    finally:
-        self.root.after(2000, lambda: self.update_progress(0, "准备就绪"))
+            # 加载工作簿
+            source_wb = openpyxl.load_workbook(source_file)
+            trans_wb = openpyxl.load_workbook(trans_file)
+            output_wb = openpyxl.Workbook()
+
+            source_ws = source_wb.active
+            trans_ws = trans_wb.active
+            output_ws = output_wb.active
+            output_ws.title = "错误码校对结果"
+
+            # 定义颜色和样式
+            RED_FILL = PatternFill(start_color='FFFF0000', end_color='FFFF0000', fill_type='solid')
+            GREEN_FILL = PatternFill(start_color='FF00FF00', end_color='FF00FF00', fill_type='solid')
+            YELLOW_FILL = PatternFill(start_color='FFFFFF00', end_color='FFFFFF00', fill_type='solid')
+            HEADER_FONT = Font(bold=True, size=12)
+            DIFF_FONT = Font(bold=True, color='FF0000')
+            MATCH_FONT = Font(color='006400')
+            MISSING_FONT = Font(bold=True, color='FFA500')
+            HEADER_FILL = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
+
+            # 设置列宽
+            column_widths = {
+                'A': 25,  # 源文件键名
+                'B': 25,  # 翻译文件键名
+                'C': 15,  # 错误码
+                'D': 15,  # 匹配类型
+                'E': 20,  # 语言
+                'F': 40,  # 源文件内容
+                'G': 40,  # 翻译文件内容
+                'H': 15  # 对比结果
+            }
+
+            for col, width in column_widths.items():
+                output_ws.column_dimensions[col].width = width
+
+            # 添加表头
+            headers = ["源文件键名", "翻译文件键名", "错误码", "匹配类型", "语言", "源文件内容", "翻译文件内容",
+                       "对比结果"]
+            output_ws.append(headers)
+
+            # 设置表头样式
+            for col in range(1, len(headers) + 1):
+                cell = output_ws.cell(row=1, column=col)
+                cell.font = HEADER_FONT
+                cell.fill = HEADER_FILL
+
+            # 构建键映射 - 使用第一列作为键名
+            def build_key_map(ws, file_type):
+                """构建键名到行号的映射"""
+                key_map = {}
+
+                for row in range(2, ws.max_row + 1):
+                    key_cell = ws.cell(row=row, column=1)
+                    key_value = key_cell.value
+
+                    if key_value is not None:
+                        try:
+                            key_str = str(key_value).strip()
+                            if key_str:
+                                key_map[key_str] = row
+                        except Exception as e:
+                            self.logger.warning(f"处理{file_type}文件行{row}时出错: {e}")
+
+                return key_map
+
+            # 直接映射表：源文件列名 -> 标准语言名
+            def build_lang_col_map(ws, file_type):
+                """构建语言列映射 - 使用直接映射表"""
+                lang_map = {}
+                all_headers = []
+
+                # 收集所有表头信息
+                for col in range(1, ws.max_column + 1):
+                    header_value = ws.cell(row=1, column=col).value
+                    if header_value is not None:
+                        header_str = str(header_value).strip()
+                        all_headers.append(f"第{col}列: '{header_str}'")
+
+                self.logger.info(f"{file_type}文件表头: {', '.join(all_headers)}")
+
+                # 直接映射表：列名 -> 标准语言名
+                header_mapping = {
+                    # 源文件列名映射
+                    "中文(CN)": "中文（CN）",
+                    "英文（EN）English": "英文（EN）English",
+                    "德语(DE)": "德语(DE)Deutsch",
+                    "西语（ES）": "西语（ES）Español",
+                    "法语(FR)": "法语(FR)Français",
+                    "意大利语(IT)": "意大利语(IT)Italiano",
+                    "葡萄牙语(BR)": "巴西葡语(BR)Português",
+                    "俄语（Pyc）": "俄语（Pyc）Русский",
+                    "土耳其语(TR)": "土耳其语(TR)Turkish",
+                    "日语(JP)": "日语(JP)日本語",
+                    "韩语(KR)": "韩语(KR)한국어",
+                    "阿拉伯语(xx)": "阿拉伯语عربية",
+                    "繁体中文": "繁体中文",
+
+                    # 对比文件列名映射（保持不变）
+                    "中文（CN）": "中文（CN）",
+                    "英文（EN）English": "英文（EN）English",
+                    "德语(DE)Deutsch": "德语(DE)Deutsch",
+                    "西语（ES）Español": "西语（ES）Español",
+                    "法语(FR)Français": "法语(FR)Français",
+                    "意大利语(IT)Italiano": "意大利语(IT)Italiano",
+                    "巴西葡语(BR)Português": "巴西葡语(BR)Português",
+                    "俄语（Pyc）Русский": "俄语（Pyc）Русский",
+                    "土耳其语(TR)Turkish": "土耳其语(TR)Turkish",
+                    "日语(JP)日本語": "日语(JP)日本語",
+                    "韩语(KR)한국어": "韩语(KR)한국어",
+                    "繁体中文": "繁体中文",
+                    "阿拉伯语عربية": "阿拉伯语عربية"
+                }
+
+                for col in range(1, ws.max_column + 1):
+                    header_value = ws.cell(row=1, column=col).value
+                    if header_value is None:
+                        continue
+
+                    header = str(header_value).strip()
+
+                    # 直接查找映射
+                    if header in header_mapping:
+                        lang_name = header_mapping[header]
+                        if lang_name not in lang_map:
+                            lang_map[lang_name] = col
+                            self.logger.info(f"{file_type}文件: 列 '{header}' -> 语言 '{lang_name}' 在第 {col} 列")
+
+                return lang_map
+
+            # 构建键映射
+            source_key_map = build_key_map(source_ws, "源文件")
+            trans_key_map = build_key_map(trans_ws, "对比文件")
+
+            # 构建语言列映射
+            source_lang_map = build_lang_col_map(source_ws, "源文件")
+            trans_lang_map = build_lang_col_map(trans_ws, "对比文件")
+
+            # 构建对比语言列表 - 只使用用户选择的语言
+            comparison_langs = []
+            for lang in selected_languages:
+                if lang in source_lang_map:
+                    comparison_langs.append(lang)
+                    self.logger.info(f"将对比语言: {lang}")
+                else:
+                    self.logger.warning(f"源文件中未找到语言列: {lang}")
+
+            self.logger.info(f"源文件键数: {len(source_key_map)}")
+            self.logger.info(f"对比文件键数: {len(trans_key_map)}")
+            self.logger.info(f"最终对比语言: {comparison_langs}")
+
+            # 执行错误码匹配和多语言对比
+            output_row = 2
+            exact_matches = 0
+            no_matches = 0
+            total_comparisons = 0
+            total_source_keys = len(source_key_map)
+
+            for i, source_key in enumerate(source_key_map.keys()):
+                progress = 30 + (i / total_source_keys) * 60
+                self.update_progress(progress, f"正在处理 {i + 1}/{total_source_keys}...")
+
+                # 使用改进的错误码匹配
+                trans_key_match = self.find_matching_trans_key_improved(source_key, trans_key_map.keys())
+
+                # 获取源文件行号
+                source_row = source_key_map[source_key]
+                trans_row = trans_key_map[trans_key_match] if trans_key_match else None
+
+                # 提取错误码信息用于显示
+                source_digits_info = self.extract_error_code_flexible(source_key)
+                source_error_display = f"{source_digits_info['original']}->{source_digits_info['no_leading_zero']}" if source_digits_info else "无错误码"
+
+                # 记录这个键是否进行了任何对比
+                key_compared = False
+
+                # 对每个选中的语言进行对比
+                for lang in comparison_langs:
+                    # 检查语言列在源文件中是否存在
+                    source_col = source_lang_map.get(lang)
+                    trans_col = trans_lang_map.get(lang)
+
+                    if not source_col:
+                        self.logger.warning(f"源文件中未找到语言列: {lang}")
+                        continue
+
+                    # 获取源文件内容
+                    source_content = ""
+                    if source_row:
+                        try:
+                            source_cell = source_ws.cell(row=source_row, column=source_col)
+                            source_content = str(source_cell.value) if source_cell.value is not None else ""
+                        except Exception as e:
+                            source_content = "【读取错误】"
+                            self.logger.error(f"读取源文件内容错误: {e}")
+
+                    # 获取翻译文件内容
+                    trans_content = ""
+                    if trans_row and trans_col:
+                        try:
+                            trans_cell = trans_ws.cell(row=trans_row, column=trans_col)
+                            trans_content = str(trans_cell.value) if trans_cell.value is not None else ""
+                        except Exception as e:
+                            trans_content = "【读取错误】"
+                            self.logger.error(f"读取翻译文件内容错误: {e}")
+                    elif trans_row and not trans_col:
+                        trans_content = "【语言列缺失】"
+                        self.logger.warning(f"对比文件中未找到语言列: {lang}")
+                    else:
+                        trans_content = "【对比文件缺失该键】"
+                        no_matches += 1
+
+                    # 写入键名（只在该语言组的第一行写入）
+                    if not key_compared:
+                        output_ws.cell(row=output_row, column=1).value = source_key
+                        output_ws.cell(row=output_row, column=1).font = Font(bold=True)
+                        output_ws.cell(row=output_row, column=2).value = trans_key_match if trans_key_match else "无匹配"
+                        output_ws.cell(row=output_row, column=3).value = source_error_display
+                        match_type = "错误码匹配" if trans_key_match else "无匹配"
+                        output_ws.cell(row=output_row, column=4).value = match_type
+                        if trans_key_match:
+                            exact_matches += 1
+                        key_compared = True
+
+                    # 写入语言标签
+                    output_ws.cell(row=output_row, column=5).value = lang
+
+                    # 写入源内容
+                    output_ws.cell(row=output_row, column=6).value = source_content
+
+                    # 写入翻译内容
+                    output_ws.cell(row=output_row, column=7).value = trans_content
+
+                    # 对比并标记结果
+                    result_text = ""
+                    if trans_content == "【对比文件缺失该键】":
+                        result_text = "⚠ 缺失"
+                        output_ws.cell(row=output_row, column=8).font = MISSING_FONT
+                        output_ws.cell(row=output_row, column=6).fill = YELLOW_FILL
+                        output_ws.cell(row=output_row, column=7).fill = YELLOW_FILL
+                    elif trans_content == "【语言列缺失】":
+                        result_text = "⚠ 语言列缺失"
+                        output_ws.cell(row=output_row, column=8).font = MISSING_FONT
+                        output_ws.cell(row=output_row, column=6).fill = YELLOW_FILL
+                        output_ws.cell(row=output_row, column=7).fill = YELLOW_FILL
+                    elif source_content == trans_content:
+                        result_text = "✓ 一致"
+                        output_ws.cell(row=output_row, column=8).font = MATCH_FONT
+                        output_ws.cell(row=output_row, column=6).fill = GREEN_FILL
+                        output_ws.cell(row=output_row, column=7).fill = GREEN_FILL
+                    else:
+                        result_text = "✗ 差异"
+                        output_ws.cell(row=output_row, column=8).font = DIFF_FONT
+                        output_ws.cell(row=output_row, column=6).fill = RED_FILL
+                        output_ws.cell(row=output_row, column=7).fill = RED_FILL
+
+                    # 确保对比结果文本被写入
+                    output_ws.cell(row=output_row, column=8).value = result_text
+
+                    output_row += 1
+                    total_comparisons += 1
+
+                # 如果这个键进行了对比，添加空行分隔
+                if key_compared:
+                    output_row += 1
+
+            # 添加总结信息
+            summary_row = output_row + 2
+            output_ws.cell(row=summary_row, column=1).value = "错误码校对总结"
+            output_ws.cell(row=summary_row, column=1).font = HEADER_FONT
+
+            summary_data = [
+                f"源文件总键数: {total_source_keys}",
+                f"错误码匹配: {exact_matches}",
+                f"无匹配: {no_matches}",
+                f"对比语言: {', '.join(comparison_langs)}",
+                f"完成对比: {total_comparisons} 次"
+            ]
+
+            for i, text in enumerate(summary_data):
+                output_ws.cell(row=summary_row + 1 + i, column=1).value = text
+
+            self.update_progress(95, "正在保存错误码校对结果...")
+            output_wb.save(output_file)
+
+            msg = "错误码校对完成！\n\n"
+            msg += f"统计信息:\n"
+            msg += f"- 源文件总键数: {total_source_keys}\n"
+            msg += f"- 错误码匹配: {exact_matches}\n"
+            msg += f"- 无匹配: {no_matches}\n"
+            msg += f"- 对比语言: {', '.join(comparison_langs)}\n"
+            msg += f"- 完成对比: {total_comparisons} 次\n\n"
+            msg += f"结果已保存到:\n{os.path.basename(output_file)}"
+
+            self.update_progress(100, "错误码校对完成！")
+            messagebox.showinfo("完成", msg)
+
+        except Exception as e:
+            self.logger.error(f"错误码校对过程中出错: {e}")
+            import traceback
+            traceback.print_exc()
+            self.update_progress(0, f"错误: {str(e)}")
+            messagebox.showerror("错误", f"错误码校对失败:\n{str(e)}")
+        finally:
+            self.root.after(2000, lambda: self.update_progress(0, "准备就绪"))
+
+    # ==================== 通用方法 ====================
+    def select_all_languages(self):
+        """全选所有语言"""
+        for var in self.language_vars:
+            var.set(1)
+
+    def deselect_all_languages(self):
+        """取消全选所有语言"""
+        for var in self.language_vars:
+            var.set(0)
+
+    def get_selected_languages(self):
+        """获取用户选择的语言列表"""
+        selected = []
+        for i, var in enumerate(self.language_vars):
+            if var.get() == 1:
+                selected.append(self.LANGUAGE_ORDER[i])
+        return selected if selected else self.LANGUAGE_ORDER
+
+    def get_output_filename(self, suffix):
+        """生成带日期时间的输出文件名"""
+        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"{now}_{suffix}.xlsx"
+
+    def update_progress(self, value, message):
+        """更新进度条和标签"""
+        self.progress['value'] = value
+        self.progress_label['text'] = message
+        self.root.update_idletasks()
+
+    def start_conversion_thread(self):
+        """启动转换线程"""
+        thread = threading.Thread(target=self.convert_code_to_excel, daemon=True)
+        thread.start()
+
+    def start_comparison_thread(self):
+        """启动对比线程"""
+        thread = threading.Thread(target=self.compare_excel_files, daemon=True)
+        thread.start()
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CompleteDualDisplayTool(root)
+    root.mainloop()
