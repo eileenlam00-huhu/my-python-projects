@@ -94,7 +94,7 @@ class CompleteDualDisplayTool:
             "中文（CN）", "英文（EN）English", "德语(DE)Deutsch",
             "西语（ES）Español", "法语(FR)Français", "意大利语(IT)Italiano",
             "巴西葡语(BR)Português", "俄语（Pyc）Русский", "土耳其语(TR)Turkish",
-            "日语(JP)日本語", "韩语(KR)한국어", "繁体中文", "阿拉伯语عربية"
+            "日语(JP)日本語", "韩语(KR)한국어", "阿拉伯语عربية", "繁体中文"
         ]
 
         # 创建语言选择网格
@@ -486,8 +486,8 @@ class CompleteDualDisplayTool:
                     "土耳其语(TR)Turkish": "土耳其语(TR)Turkish",
                     "日语(JP)日本語": "日语(JP)日本語",
                     "韩语(KR)한국어": "韩语(KR)한국어",
-                    "繁体中文": "繁体中文",
-                    "阿拉伯语عربية": "阿拉伯语عربية"
+                    "阿拉伯语عربية": "阿拉伯语عربية",
+                    "繁体中文": "繁体中文"
                 }
 
                 for col, header in all_headers:
@@ -1100,8 +1100,8 @@ class CompleteDualDisplayTool:
                     "土耳其语(TR)Turkish": "土耳其语(TR)Turkish",
                     "日语(JP)日本語": "日语(JP)日本語",
                     "韩语(KR)한국어": "韩语(KR)한국어",
-                    "繁体中文": "繁体中文",
-                    "阿拉伯语عربية": "阿拉伯语عربية"
+                    "阿拉伯语عربية": "阿拉伯语عربية",
+                    "繁体中文": "繁体中文"
                 }
 
                 for col in range(1, ws.max_column + 1):
