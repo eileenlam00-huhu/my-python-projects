@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多语言文件对比工具 - Web版</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --success-color: #2ecc71;
+            --warning-color: #e67e22;
+            --danger-color: #9b59b6;
+            --info-color: #3498db;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 2px 4px rgba(0,0,0,.1);
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+            color: white !important;
+        }
+
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            transition: transform 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+            font-weight: 600;
+            padding: 15px 20px;
+        }
+
+        .btn-function {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn-function:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            color: white;
+        }
+
+        .btn-function:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .language-checkbox {
+            margin: 5px;
+            padding: 8px 15px;
+            background: white;
+            border-radius: 20px;
+            border: 1px solid #dee2e6;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-block;
+        }
+
+        .language-checkbox:hover {
+            background: #e9ecef;
+        }
+
+        .language-checkbox input {
+            margin-right: 5px;
+        }
+
+        .progress {
+            height: 25px;
+            border-radius: 12px;
+            background-color: #e9ecef;
+        }
+
+        .progress-bar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            transition: width 0.3s ease;
+        }
+
+        .tab-pane {
+            padding: 20px;
+            background: white;
+            border-radius: 0 0 15px 15px;
+        }
+
+        .nav-tabs .nav-link {
+            color: #495057;
+            font-weight: 500;
+            border: none;
+            padding: 12px 25px;
+        }
+
+        .nav-tabs .nav-link.active {
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            background: transparent;
+        }
+
+        .file-input {
+            border: 2px dashed #dee2e6;
+            padding: 40px;
+            text-align: center;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .file-input:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .file-input i {
+            font-size: 48px;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .file-input.has-file {
+            border-color: #2ecc71;
+            background: #f0fff4;
+        }
+
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .similarity-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .similarity-high {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .similarity-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .similarity-low {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .result-table {
+            font-size: 0.9em;
+        }
+
+        .result-table th {
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .table-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+        }
+
+        .match-rate-input {
+            width: 100px;
+            display: inline-block;
+            margin: 0 10px;
+        }
+
+        .error-code-preview {
+            font-family: monospace;
+            background: #f8f9fa;
+            padding: 5px 10px;
+            border-radius: 5px;
+            border-left: 3px solid #667eea;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-dark">
+        <div class="container">
+            <span class="navbar-brand">
+                <i class="fas fa-language me-2"></i>
+                多语言文件对比工具 v2.0 Web版
+            </span>
+            <span class="text-white">
+                <i class="fas fa-info-circle me-1"></i>
+                差异内容标记红色 | 一致内容标记绿色 | 缺失内容标记黄色
+            </span>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- 进度条 -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span id="progressMessage" class="text-muted">准备就绪</span>
+                    <span id="progressPercentage" class="text-muted">0%</span>
+                </div>
+                <div class="progress">
+                    <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 语言选择区域 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-check-circle me-2"></i>
+                选择对比语言
+            </div>
+            <div class="card-body">
+                <div id="languageContainer" class="mb-3">
+                    {% for lang in languages %}
+                    <label class="language-checkbox">
+                        <input type="checkbox" name="languages" value="{{ lang }}" checked>
+                        {{ lang }}
+                    </label>
+                    {% endfor %}
+                </div>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary me-2" onclick="selectAllLanguages(true)">
+                        <i class="fas fa-check-double me-1"></i>全选
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="selectAllLanguages(false)">
+                        <i class="fas fa-times me-1"></i>取消全选
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 功能标签页 -->
+        <ul class="nav nav-tabs" id="functionTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="code-tab" data-bs-toggle="tab" data-bs-target="#code" type="button" role="tab">
+                    <i class="fas fa-code me-2"></i>功能一: 代码转Excel
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="compare-tab" data-bs-toggle="tab" data-bs-target="#compare" type="button" role="tab">
+                    <i class="fas fa-balance-scale me-2"></i>功能二: Excel对比
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="error-tab" data-bs-toggle="tab" data-bs-target="#error" type="button" role="tab">
+                    <i class="fas fa-exclamation-triangle me-2"></i>功能三: 错误码校对
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="functionTabContent">
+            <!-- 功能一：代码转Excel -->
+            <div class="tab-pane fade show active" id="code" role="tabpanel">
+                <div class="text-center mb-4">
+                    <h5 class="text-secondary">将C语言多语言代码文件转换为Excel格式</h5>
+                </div>
+
+                <div class="file-input" onclick="document.getElementById('codeFile').click()">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h5>点击选择C语言代码文件</h5>
+                    <p class="text-muted">支持 .c .h 文件</p>
+                </div>
+                <input type="file" id="codeFile" accept=".c,.h" style="display: none">
+
+                <div class="text-center mt-4">
+                    <button class="btn-function" onclick="convertCode()">
+                        <i class="fas fa-sync-alt me-2"></i>开始转换
+                    </button>
+                </div>
+            </div>
+
+            <!-- 功能二：Excel对比 -->
+            <div class="tab-pane fade" id="compare" role="tabpanel">
+                <div class="text-center mb-4">
+                    <h5 class="text-secondary">对比两个Excel文件的多语言内容</h5>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="file-input" onclick="document.getElementById('sourceFile').click()">
+                            <i class="fas fa-file-excel"></i>
+                            <h5>选择源Excel文件</h5>
+                            <p class="text-muted" id="sourceFileName">未选择文件</p>
+                        </div>
+                        <input type="file" id="sourceFile" accept=".xlsx,.xls" style="display: none">
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="file-input" onclick="document.getElementById('transFile').click()">
+                            <i class="fas fa-file-excel"></i>
+                            <h5>选择翻译Excel文件</h5>
+                            <p class="text-muted" id="transFileName">未选择文件</p>
+                        </div>
+                        <input type="file" id="transFile" accept=".xlsx,.xls" style="display: none">
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <button class="btn-function" onclick="compareExcel()">
+                        <i class="fas fa-balance-scale me-2"></i>开始对比
+                    </button>
+                </div>
+            </div>
+
+            <!-- 功能三：错误码校对 -->
+            <div class="tab-pane fade" id="error" role="tabpanel">
+                <div class="text-center mb-4">
+                    <h5 class="text-secondary">通过错误码数字进行模糊匹配</h5>
+                    <p class="text-muted">使用上方语言选择区域选择要对比的语言</p>
+                </div>
+
+                <!-- 匹配率设置 -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <label class="form-label">
+                                    <i class="fas fa-percent me-1 text-primary"></i>
+                                    匹配阈值设置
+                                </label>
+                                <div class="d-flex align-items-center">
+                                    <input type="range" class="form-range" id="matchThreshold" min="50" max="100" value="80" step="5" oninput="updateThresholdLabel(this.value)">
+                                    <span id="thresholdValue" class="badge bg-primary ms-3">80%</span>
+                                </div>
+                                <small class="text-muted">设置错误码数字的匹配相似度阈值</small>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="error-code-preview">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    示例: ERR_001 匹配 ERR_1 | 1001 匹配 1001A
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="file-input" onclick="document.getElementById('errorSourceFile').click()" id="errorSourceInput">
+                            <i class="fas fa-file-excel"></i>
+                            <h5>选择源Excel文件</h5>
+                            <p class="text-muted" id="errorSourceFileName">未选择文件</p>
+                        </div>
+                        <input type="file" id="errorSourceFile" accept=".xlsx,.xls" style="display: none" onchange="updateFileStatus('errorSource')">
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="file-input" onclick="document.getElementById('errorTransFile').click()" id="errorTransInput">
+                            <i class="fas fa-file-excel"></i>
+                            <h5>选择翻译Excel文件</h5>
+                            <p class="text-muted" id="errorTransFileName">未选择文件</p>
+                        </div>
+                        <input type="file" id="errorTransFile" accept=".xlsx,.xls" style="display: none" onchange="updateFileStatus('errorTrans')">
+                    </div>
+                </div>
+
+                <!-- 高级选项 -->
+                <div class="mt-3">
+                    <button class="btn btn-link text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#advancedOptions">
+                        <i class="fas fa-cog me-1"></i>高级选项
+                    </button>
+                    <div class="collapse" id="advancedOptions">
+                        <div class="card card-body">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="ignoreCase" checked>
+                                        <label class="form-check-label" for="ignoreCase">
+                                            忽略大小写
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="ignoreSpecialChars" checked>
+                                        <label class="form-check-label" for="ignoreSpecialChars">
+                                            忽略特殊字符
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="extractNumbers" checked>
+                                        <label class="form-check-label" for="extractNumbers">
+                                            提取数字部分
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <button class="btn-function" onclick="checkErrorCode()" id="errorCheckBtn">
+                        <i class="fas fa-exclamation-triangle me-2"></i>开始校对
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 结果展示区域 -->
+        <div id="resultArea" style="display: none;" class="mt-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-chart-bar me-2"></i>
+                        处理结果
+                    </span>
+                    <button class="btn btn-sm btn-light" onclick="toggleResultDetails()">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="resultContent" class="alert alert-success"></div>
+
+                    <!-- 结果统计 -->
+                    <div id="resultStats" class="row mb-3" style="display: none;">
+                        <div class="col-md-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body">
+                                    <h6>总条目数</h6>
+                                    <h3 id="totalCount">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body">
+                                    <h6>完全匹配</h6>
+                                    <h3 id="exactMatchCount">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-warning text-white">
+                                <div class="card-body">
+                                    <h6>模糊匹配</h6>
+                                    <h3 id="fuzzyMatchCount">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-danger text-white">
+                                <div class="card-body">
+                                    <h6>未匹配</h6>
+                                    <h3 id="unmatchedCount">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 详细结果表格 -->
+                    <div id="resultTableContainer" class="table-container mb-3" style="display: none;">
+                        <table class="table table-striped table-hover result-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>源错误码</th>
+                                    <th>源内容</th>
+                                    <th>匹配错误码</th>
+                                    <th>翻译内容</th>
+                                    <th>相似度</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="text-center">
+                        <a id="downloadLink" href="#" class="btn btn-success">
+                            <i class="fas fa-download me-2"></i>下载结果文件
+                        </a>
+                        <button class="btn btn-outline-primary ms-2" onclick="copyToClipboard()" id="copyBtn">
+                            <i class="fas fa-copy me-2"></i>复制摘要
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.bootcdn.net/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 全局变量
+        let currentTaskId = null;
+        let progressInterval = null;
+        let currentResultData = null;
+
+        // 文件选择监听
+        document.getElementById('codeFile').addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                document.querySelector('#code .file-input h5').textContent = e.target.files[0].name;
+            }
+        });
+
+        document.getElementById('sourceFile').addEventListener('change', function(e) {
+            document.getElementById('sourceFileName').textContent =
+                e.target.files.length > 0 ? e.target.files[0].name : '未选择文件';
+        });
+
+        document.getElementById('transFile').addEventListener('change', function(e) {
+            document.getElementById('transFileName').textContent =
+                e.target.files.length > 0 ? e.target.files[0].name : '未选择文件';
+        });
+
+        // 错误码文件选择监听
+        function updateFileStatus(type) {
+            const sourceFile = document.getElementById('errorSourceFile');
+            const transFile = document.getElementById('errorTransFile');
+
+            if (type === 'errorSource' && sourceFile.files.length > 0) {
+                document.getElementById('errorSourceFileName').textContent = sourceFile.files[0].name;
+                document.getElementById('errorSourceInput').classList.add('has-file');
+            }
+
+            if (type === 'errorTrans' && transFile.files.length > 0) {
+                document.getElementById('errorTransFileName').textContent = transFile.files[0].name;
+                document.getElementById('errorTransInput').classList.add('has-file');
+            }
+        }
+
+        // 更新阈值显示
+        function updateThresholdLabel(value) {
+            document.getElementById('thresholdValue').textContent = value + '%';
+        }
+
+        // 全选/取消全选
+        function selectAllLanguages(select) {
+            document.querySelectorAll('input[name="languages"]').forEach(cb => {
+                cb.checked = select;
+            });
+        }
+
+        // 更新进度条
+        function updateProgress(percentage, message) {
+            document.getElementById('progressBar').style.width = percentage + '%';
+            document.getElementById('progressMessage').textContent = message;
+            document.getElementById('progressPercentage').textContent = percentage + '%';
+        }
+
+        // 轮询任务状态
+        function pollTaskStatus(taskId) {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
+
+            progressInterval = setInterval(() => {
+                fetch(`/api/task-status/${taskId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.progress !== undefined) {
+                            updateProgress(data.progress, data.message || '处理中...');
+                        }
+
+                        if (data.status === 'completed') {
+                            clearInterval(progressInterval);
+                            // 确保传递 download_url
+                            showResult('success', data.message || '处理完成！', data.download_url);
+
+                            // 显示统计信息
+                            if (data.result && data.result.statistics) {
+                                displayErrorCodeResult(data.result);
+                            }
+
+                            // 启用所有功能按钮
+                            document.querySelectorAll('.btn-function').forEach(btn => {
+                                btn.disabled = false;
+                            });
+                        } else if (data.status === 'error') {
+                            clearInterval(progressInterval);
+                            showResult('danger', '处理失败：' + (data.message || data.error || '未知错误'), null);
+                            document.querySelectorAll('.btn-function').forEach(btn => {
+                                btn.disabled = false;
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Polling error:', error);
+                    });
+            }, 1000);
+        }
+
+        // 显示错误码校对结果
+        function displayErrorCodeResult(result) {
+            currentResultData = result;
+
+            // 更新统计
+            document.getElementById('totalCount').textContent = result.statistics.total;
+            document.getElementById('exactMatchCount').textContent = result.statistics.exact_matches;
+            document.getElementById('fuzzyMatchCount').textContent = result.statistics.fuzzy_matches;
+            document.getElementById('unmatchedCount').textContent = result.statistics.unmatched;
+
+            document.getElementById('resultStats').style.display = 'flex';
+
+            // 更新表格
+            const tbody = document.getElementById('resultTableBody');
+            tbody.innerHTML = '';
+
+            result.matches.forEach(item => {
+                const row = document.createElement('tr');
+
+                // 根据相似度设置行样式
+                if (item.similarity >= 100) {
+                    row.classList.add('table-success');
+                } else if (item.similarity >= 80) {
+                    row.classList.add('table-warning');
+                } else {
+                    row.classList.add('table-danger');
+                }
+
+                // 相似度徽章
+                let badgeClass = 'similarity-high';
+                if (item.similarity < 80) badgeClass = 'similarity-low';
+                else if (item.similarity < 100) badgeClass = 'similarity-medium';
+
+                row.innerHTML = `
+                    <td><code>${escapeHtml(item.source_key || '')}</code></td>
+                    <td>${escapeHtml(item.source_value || '')}</td>
+                    <td><code>${escapeHtml(item.matched_key || '')}</code></td>
+                    <td>${escapeHtml(item.trans_value || '')}</td>
+                    <td>
+                        <span class="similarity-badge ${badgeClass}">
+                            ${item.similarity}%
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            document.getElementById('resultTableContainer').style.display = 'block';
+        }
+
+        // HTML转义
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 切换结果详情显示
+        function toggleResultDetails() {
+            const container = document.getElementById('resultTableContainer');
+            const stats = document.getElementById('resultStats');
+            const btn = event.target.closest('button');
+
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+                stats.style.display = 'flex';
+                btn.innerHTML = '<i class="fas fa-compress"></i>';
+            } else {
+                container.style.display = 'none';
+                stats.style.display = 'none';
+                btn.innerHTML = '<i class="fas fa-expand"></i>';
+            }
+        }
+
+        // 复制到剪贴板
+        function copyToClipboard() {
+            if (!currentResultData) return;
+
+            const text = `错误码校对结果摘要：
+总条目数: ${currentResultData.statistics.total}
+完全匹配: ${currentResultData.statistics.exact_matches}
+模糊匹配: ${currentResultData.statistics.fuzzy_matches}
+未匹配: ${currentResultData.statistics.unmatched}
+匹配率: ${currentResultData.statistics.match_rate}%`;
+
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyBtn');
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check me-2"></i>已复制';
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                }, 2000);
+            });
+        }
+
+        // 显示结果
+        function showResult(type, message, downloadUrl) {
+            const resultArea = document.getElementById('resultArea');
+            const resultContent = document.getElementById('resultContent');
+            const downloadLink = document.getElementById('downloadLink');
+
+            resultContent.className = `alert alert-${type}`;
+            resultContent.textContent = message;
+
+            if (downloadUrl) {
+                downloadLink.href = downloadUrl;
+                downloadLink.style.display = 'inline-block';
+            } else {
+                downloadLink.style.display = 'none';
+            }
+
+            resultArea.style.display = 'block';
+
+            // 滚动到结果区域
+            resultArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // 功能一：代码转换
+        function convertCode() {
+            const fileInput = document.getElementById('codeFile');
+            if (fileInput.files.length === 0) {
+                alert('请选择代码文件');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('code_file', fileInput.files[0]);
+
+            updateProgress(10, '正在上传文件...');
+            document.querySelector('#code .btn-function').disabled = true;
+
+            fetch('/api/convert-code', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showResult('danger', '转换失败：' + data.error, null);
+                    updateProgress(0, '转换失败');
+                } else {
+                    updateProgress(100, '转换完成');
+                    showResult('success', data.message, data.download_url);
+                }
+            })
+            .catch(error => {
+                showResult('danger', '网络错误：' + error, null);
+                updateProgress(0, '网络错误');
+            })
+            .finally(() => {
+                document.querySelector('#code .btn-function').disabled = false;
+            });
+        }
+
+        // 功能二：Excel对比
+        function compareExcel() {
+            const sourceFile = document.getElementById('sourceFile');
+            const transFile = document.getElementById('transFile');
+
+            if (sourceFile.files.length === 0 || transFile.files.length === 0) {
+                alert('请选择源文件和翻译文件');
+                return;
+            }
+
+            // 获取选中的语言
+            const selectedLanguages = [];
+            document.querySelectorAll('input[name="languages"]:checked').forEach(cb => {
+                selectedLanguages.push(cb.value);
+            });
+
+            if (selectedLanguages.length === 0) {
+                alert('请至少选择一种语言');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('source_file', sourceFile.files[0]);
+            formData.append('trans_file', transFile.files[0]);
+            selectedLanguages.forEach(lang => {
+                formData.append('languages[]', lang);
+            });
+
+            updateProgress(5, '正在启动对比任务...');
+            document.querySelector('#compare .btn-function').disabled = true;
+
+            fetch('/api/compare-excel', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.task_id) {
+                    currentTaskId = data.task_id;
+                    pollTaskStatus(data.task_id);
+                } else {
+                    showResult('danger', '启动任务失败', null);
+                    document.querySelector('#compare .btn-function').disabled = false;
+                }
+            })
+            .catch(error => {
+                showResult('danger', '网络错误：' + error, null);
+                document.querySelector('#compare .btn-function').disabled = false;
+            });
+        }
+
+        // 功能三：错误码校对
+        function checkErrorCode() {
+            const sourceFile = document.getElementById('errorSourceFile');
+            const transFile = document.getElementById('errorTransFile');
+
+            if (sourceFile.files.length === 0 || transFile.files.length === 0) {
+                alert('请选择源文件和翻译文件');
+                return;
+            }
+
+            // 获取选中的语言
+            const selectedLanguages = [];
+            document.querySelectorAll('input[name="languages"]:checked').forEach(cb => {
+                selectedLanguages.push(cb.value);
+            });
+
+            if (selectedLanguages.length === 0) {
+                alert('请至少选择一种语言');
+                return;
+            }
+
+            // 获取配置参数
+            const threshold = document.getElementById('matchThreshold').value;
+            const ignoreCase = document.getElementById('ignoreCase').checked;
+            const ignoreSpecialChars = document.getElementById('ignoreSpecialChars').checked;
+            const extractNumbers = document.getElementById('extractNumbers').checked;
+
+            const formData = new FormData();
+            formData.append('source_file', sourceFile.files[0]);
+            formData.append('trans_file', transFile.files[0]);
+            formData.append('threshold', threshold);
+            formData.append('ignore_case', ignoreCase);
+            formData.append('ignore_special_chars', ignoreSpecialChars);
+            formData.append('extract_numbers', extractNumbers);
+
+            selectedLanguages.forEach(lang => {
+                formData.append('languages[]', lang);
+            });
+
+            updateProgress(5, '正在启动错误码校对任务...');
+            document.getElementById('errorCheckBtn').disabled = true;
+
+            fetch('/api/error-code-check', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.task_id) {
+                    currentTaskId = data.task_id;
+                    pollTaskStatus(data.task_id);
+                } else if (data.error) {
+                    showResult('danger', '启动任务失败：' + data.error, null);
+                    document.getElementById('errorCheckBtn').disabled = false;
+                } else {
+                    showResult('danger', '启动任务失败', null);
+                    document.getElementById('errorCheckBtn').disabled = false;
+                }
+            })
+            .catch(error => {
+                showResult('danger', '网络错误：' + error, null);
+                document.getElementById('errorCheckBtn').disabled = false;
+            });
+        }
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化阈值显示
+            updateThresholdLabel(document.getElementById('matchThreshold').value);
+        });
+    </script>
+</body>
+</html>
