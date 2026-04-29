@@ -94,7 +94,10 @@ class CompleteDualDisplayTool:
             "中文（CN）", "英文（EN）English", "德语(DE)Deutsch",
             "西语（ES）Español", "法语(FR)Français", "意大利语(IT)Italiano",
             "巴西葡语(BR)Português", "俄语（Pyc）Русский", "土耳其语(TR)Turkish",
-            "日语(JP)日本語", "韩语(KR)한국어", "阿拉伯语عربية", "繁体中文"
+            "日语(JP)日本語", "韩语(KR)한국어", "阿拉伯语عربية", "繁体中文",
+            "波兰语（PL）Polski","越南语（VI）Tiếng Việt","印尼语（ID）Bahasa Indonesia",
+            "泰语（TH）ไทย","马来语（MS）Bahasa Melayu","希伯来语（HE）עברית",
+            "南非语（AF）Afrikaans","印地语 （HI）Hindi"
         ]
 
         # 创建语言选择网格
@@ -473,6 +476,25 @@ class CompleteDualDisplayTool:
                     # 源文件的实际表头映射
                     "中文（CN）": "中文（CN）",
                     "英文（EN）English": "英文（EN）English",
+                    "德语(DE)Deutsch": "德语(DE)Deutsch",
+                    "西语（ES）Español": "西语（ES）Español",
+                    "法语(FR)Français": "法语(FR)Français",
+                    "意大利语(IT)Italiano": "意大利语(IT)Italiano",
+                    "巴西葡语(BR)Português": "巴西葡语(BR)Português",
+                    "俄语（Pyc）Русский": "俄语（Pyc）Русский",
+                    "土耳其语(TR)Turkish": "土耳其语(TR)Turkish",
+                    "日语(JP)日本語": "日语(JP)日本語",
+                    "韩语(KR)한국어": "韩语(KR)한국어",
+                    "阿拉伯语عربية": "阿拉伯语عربية",
+                    "繁体中文": "繁体中文",
+                    "波兰语（PL）Polski": "波兰语（PL）Polski",
+                    "越南语（VI）Tiếng Việt": "越南语（VI）Tiếng Việt",
+                    "印尼语（ID）Bahasa Indonesia": "印尼语（ID）Bahasa Indonesia",
+                    "泰语（TH）ไทย": "泰语（TH）ไทย",
+                    "马来语（MS）Bahasa Melayu": "马来语（MS）Bahasa Melayu",
+                    "希伯来语（HE）עברית": "希伯来语（HE）עברית",
+                    "南非语（AF）Afrikaans": "南非语（AF）Afrikaans",
+                    "印地语 （HI）Hindi": "印地语 （HI）Hindi",
 
                     # 翻译文件的实际表头映射
                     "中文（CN）": "中文（CN）",
@@ -487,7 +509,16 @@ class CompleteDualDisplayTool:
                     "日语(JP)日本語": "日语(JP)日本語",
                     "韩语(KR)한국어": "韩语(KR)한국어",
                     "阿拉伯语عربية": "阿拉伯语عربية",
-                    "繁体中文": "繁体中文"
+                    "繁体中文": "繁体中文",
+                    "波兰语（PL）Polski":"波兰语（PL）Polski",
+                    "越南语（VI）Tiếng Việt":"越南语（VI）Tiếng Việt",
+                    "印尼语（ID）Bahasa Indonesia":"印尼语（ID）Bahasa Indonesia",
+                    "泰语（TH）ไทย":"泰语（TH）ไทย",
+                    "马来语（MS）Bahasa Melayu":"马来语（MS）Bahasa Melayu",
+                    "希伯来语（HE）עברית":"希伯来语（HE）עברית",
+                    "南非语（AF）Afrikaans":"南非语（AF）Afrikaans",
+                    "印地语 （HI）Hindi":"印地语 （HI）Hindi"
+
                 }
 
                 for col, header in all_headers:
@@ -1087,6 +1118,14 @@ class CompleteDualDisplayTool:
                     "韩语(KR)": "韩语(KR)한국어",
                     "阿拉伯语(xx)": "阿拉伯语عربية",
                     "繁体中文": "繁体中文",
+                    "波兰语（PL）Polski": "波兰语（PL）Polski",
+                    "越南语（VI）Tiếng Việt": "越南语（VI）Tiếng Việt",
+                    "印尼语（ID）Bahasa Indonesia": "印尼语（ID）Bahasa Indonesia",
+                    "泰语（TH）ไทย": "泰语（TH）ไทย",
+                    "马来语（MS）Bahasa Melayu": "马来语（MS）Bahasa Melayu",
+                    "希伯来语（HE）עברית": "希伯来语（HE）עברית",
+                    "南非语（AF）Afrikaans": "南非语（AF）Afrikaans",
+                    "印地语 （HI）Hindi": "印地语 （HI）Hindi",
 
                     # 对比文件列名映射（保持不变）
                     "中文（CN）": "中文（CN）",
@@ -1101,7 +1140,15 @@ class CompleteDualDisplayTool:
                     "日语(JP)日本語": "日语(JP)日本語",
                     "韩语(KR)한국어": "韩语(KR)한국어",
                     "阿拉伯语عربية": "阿拉伯语عربية",
-                    "繁体中文": "繁体中文"
+                    "繁体中文": "繁体中文",
+                    "波兰语（PL）Polski": "波兰语（PL）Polski",
+                    "越南语（VI）Tiếng Việt": "越南语（VI）Tiếng Việt",
+                    "印尼语（ID）Bahasa Indonesia": "印尼语（ID）Bahasa Indonesia",
+                    "泰语（TH）ไทย": "泰语（TH）ไทย",
+                    "马来语（MS）Bahasa Melayu": "马来语（MS）Bahasa Melayu",
+                    "希伯来语（HE）עברית": "希伯来语（HE）עברית",
+                    "南非语（AF）Afrikaans": "南非语（AF）Afrikaans",
+                    "印地语 （HI）Hindi": "印地语 （HI）Hindi"
                 }
 
                 for col in range(1, ws.max_column + 1):
