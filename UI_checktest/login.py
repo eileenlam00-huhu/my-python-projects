@@ -52,6 +52,9 @@ def init_persistent_shell():
     click.shell_proc.stdin.write('id\n')
     click.shell_proc.stdin.flush()
 
+    if not click.ensure_touch_control():
+        raise RuntimeError('/touch_control 文件检测失败，程序无法继续执行')
+
     logger('[SUCCESS] 交互式登录序列完成')
     click.shell_proc.stdin.write(f'mkdir -p {REMOTE_DIR} && chmod 777 {REMOTE_DIR}\n')
     click.shell_proc.stdin.flush()

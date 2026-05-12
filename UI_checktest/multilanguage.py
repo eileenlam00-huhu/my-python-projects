@@ -25,13 +25,14 @@ ALL_LANGUAGES = {
     '17': ('ไทย', (218, 380)),
     '18': ('Bahasa Melayu', (205, 209)),
     '19': ('עברית', (313, 557)),
-    '20': ('Afrikaans', (313, 380))
+    '20': ('Afrikaans', (313, 380)),
+    '21': ('हिंदी', (320, 217))
 }
 
 
 def select_languages():
     print('\n' + '=' * 40)
-    print('      20国语言多选清单')
+    print('      21国语言多选清单')
     print('=' * 40)
     for k, v in ALL_LANGUAGES.items():
         print(f"{k.rjust(2)}. {v[0]}")
@@ -39,17 +40,33 @@ def select_languages():
     choice = input("请输入序号多选(如 1,2,5) 或输入 'all': ").strip().lower()
 
     selected_data = []
+    selected_ids = set()
     if choice == 'all':
         for k, v in ALL_LANGUAGES.items():
             selected_data.append((int(k), v[0], v[1]))
+            selected_ids.add(k)
     else:
         for idx in choice.split(','):
             idx = idx.strip()
-            if idx in ALL_LANGUAGES:
+            if idx in ALL_LANGUAGES and idx not in selected_ids:
                 info = ALL_LANGUAGES[idx]
                 selected_data.append((int(idx), info[0], info[1]))
+                selected_ids.add(idx)
 
     print(f'--- 已确认选择 {len(selected_data)} 种语言 ---')
+    return selected_data
+
+
+def build_language_data(selected_ids=None):
+    """根据语言ID或语言名构建选择语言数据列表。"""
+    if selected_ids is None:
+        return [(int(k), v[0], v[1]) for k, v in ALL_LANGUAGES.items()]
+
+    normalized = {str(item).strip() for item in selected_ids if item is not None}
+    selected_data = []
+    for k, v in ALL_LANGUAGES.items():
+        if str(k) in normalized or v[0] in normalized:
+            selected_data.append((int(k), v[0], v[1]))
     return selected_data
 
 

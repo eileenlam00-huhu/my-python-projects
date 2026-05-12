@@ -6,7 +6,7 @@ from .utils import logger
 shell_proc = None
 
 
-def adb_shell(cmd, wait_time=1.0):
+def adb_shell(cmd, wait_time=1.0, expect=None, timeout=5.0):
     global shell_proc
     if shell_proc is None:
         logger('[ERROR] shell 未初始化，无法下发指令')
@@ -20,6 +20,18 @@ def adb_shell(cmd, wait_time=1.0):
         clean_cmd = cmd.replace('adb shell ', '')
         shell_proc.stdin.write(f"{clean_cmd}\n")
         shell_proc.stdin.flush()
+
+        if expect:
+            start_time = time.time()
+            output = ''
+            while time.time() - start_time < timeout:
+                line = safe_read_line(timeout=1.0)
+                if line:
+                    output += line + '\n'
+                    if expect in line:
+                        return line
+            return output.strip()
+
         time.sleep(wait_time)
         return 'Sent'
     except Exception as e:
@@ -54,6 +66,14 @@ def safe_click(x, y, label='', max_retry=3):
         return True
 
 
+def ensure_touch_control():
+    result = adb_shell('[ -x /touch_control ] && echo TOUCH_OK || echo TOUCH_NO', wait_time=0.1, expect='TOUCH_OK', timeout=3.0)
+    if 'TOUCH_OK' in str(result):
+        return True
+    logger('[FATAL] 设备缺少 /touch_control 或该文件不可执行')
+    return False
+
+
 def click_with_evtest(x, y, page_label='未知页面', timeout=150.0, retries=3):
     global shell_proc
     for attempt in range(retries + 1):
@@ -61,7 +81,11 @@ def click_with_evtest(x, y, page_label='未知页面', timeout=150.0, retries=3)
         prefix = f'[RETRY {attempt}]' if attempt > 0 else '[ACTION]'
         logger(f'  {prefix} 正在点击 {page_label} 坐标 ({x}, {y}) 并监控回显...')
 
-        adb_shell(f'/touch_control {TOUCH_DEV} {x} {y}')
+        click_result = adb_shell(f'if [ -x /touch_control ]; then /touch_control {TOUCH_DEV} {x} {y} && echo TOUCH_SENT; else echo TOUCH_NO; fi', wait_time=0.1, expect='TOUCH_SENT', timeout=3.0)
+        if 'TOUCH_NO' in str(click_result):
+            logger(f'  [ERROR] {page_label} /touch_control 不可用或权限不足')
+            return False
+
         time.sleep(15.0)
 
         start_t = time.time()

@@ -4,6 +4,7 @@ from openpyxl.styles import Font
 from .utils import ensure_dir_exists
 
 try:
+    from PIL import Image as PillowImage
     from openpyxl.drawing.image import Image as OpenpyxlImage
     PILLOW_AVAILABLE = True
 except ImportError:
@@ -49,15 +50,14 @@ def append_image(ws, row, path, column):
     # 检查路径是否存在
     if not path or not os.path.exists(path):
         cell = ws[f'{column}{row}']
-        cell.value = f'文件缺失: {os.path.basename(path)}'
-        cell.font = Font(color='FF0000', italic=True)
+        cell.value = None
         return False
 
     # 检查 Pillow 是否可用
     if not PILLOW_AVAILABLE:
         cell = ws[f'{column}{row}']
-        cell.value = f'无Pillow: {os.path.basename(path)}'
-        cell.font = Font(color='FF0000', italic=True)
+        cell.value = path
+        print(f"警告: 未安装 Pillow，无法将图片插入 Excel，已写入图片路径: {path}")
         return False
 
     try:
@@ -66,6 +66,8 @@ def append_image(ws, row, path, column):
         img.width = 220
         img.height = 130
         img.anchor = f'{column}{row}'
+        cell = ws[f'{column}{row}']
+        cell.value = None
         ws.add_image(img)
         ws.row_dimensions[row].height = 120
         
@@ -76,8 +78,7 @@ def append_image(ws, row, path, column):
 
     except Exception as e:
         cell = ws[f'{column}{row}']
-        cell.value = f'加载失败: {os.path.basename(path)}'
-        cell.font = Font(color='FF0000', italic=True)
+        cell.value = None
         print(f"Error loading image {path}: {e}")
         return False
 
