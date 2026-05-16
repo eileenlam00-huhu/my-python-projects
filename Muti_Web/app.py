@@ -32,7 +32,8 @@ LANGUAGE_ORDER = [
     "巴西葡语(BR)Português", "俄语（Pyc）Русский", "土耳其语(TR)Turkish",
     "日语(JP)日本語", "韩语(KR)한국어", "阿拉伯语عربية", "繁体中文",
     "波兰语（PL）Polski","越南语（VI）Tiếng Việt","印尼语（ID）Bahasa Indonesia",
-    "泰语（TH）ไทย","马来语（MS）Bahasa Melayu","希伯来语（HE）עברית","南非语（AF）Afrikaans"
+    "泰语（TH）ไทย","马来语（MS）Bahasa Melayu","希伯来语（HE）עברית",
+    "南非语（AF）Afrikaans", "印地语 （HI）Hindi"
 ]
 
 # 存储任务状态
@@ -579,6 +580,11 @@ def compare_excel_files(source_path, trans_path, selected_languages, task_id):
                         lang_map["南非语（AF）Afrikaans"] = col
                         logger.info(f"✓ 南非语匹配: '{header_str}' -> 南非语（AF）Afrikaans (第{col}列)")
 
+                    # 印地语（新增）
+                    elif "印地语" in header_str or "hindi" in header_lower or "hi" == header_lower:
+                        lang_map["印地语 （HI）Hindi"] = col
+                        logger.info(f"✓ 印地语匹配: '{header_str}' -> 印地语 （HI）Hindi (第{col}列)")
+
             logger.info(f"{file_name} 最终语言映射: {lang_map}")
             return lang_map
 
@@ -624,7 +630,8 @@ def compare_excel_files(source_path, trans_path, selected_languages, task_id):
                 "泰语（TH）ไทย",
                 "马来语（MS）Bahasa Melayu",
                 "希伯来语（HE）עברית",
-                "南非语（AF）Afrikaans"
+                "南非语（AF）Afrikaans",
+                "印地语 （HI）Hindi"
             ]
 
             # 根据列顺序为缺失的语言分配列号
