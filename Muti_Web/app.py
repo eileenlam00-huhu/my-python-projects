@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import re
+import zipfile
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 from datetime import datetime
@@ -25,6 +26,39 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def get_excel_file_signature(file_path):
+    try:
+        if zipfile.is_zipfile(file_path):
+            return 'xlsx'
+        with open(file_path, 'rb') as f:
+            header = f.read(8)
+    except Exception:
+        return None
+    if header.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
+        return 'xls'
+    return None
+
+
+def load_excel_workbook(file_path, description='Excel 文件'):
+    file_name = os.path.basename(file_path)
+    file_ext = os.path.splitext(file_path)[1].lower()
+    signature = get_excel_file_signature(file_path)
+    is_zip = zipfile.is_zipfile(file_path)
+    logger.info(f'加载 {description}: path={file_path}, ext={file_ext}, signature={signature}, is_zip={is_zip}')
+
+    try:
+        return openpyxl.load_workbook(file_path, data_only=True)
+    except Exception as exc:
+        # 捕获常见文件格式错误，给出更明确的提示
+        if signature == 'xls' or file_ext == '.xls':
+            raise Exception(f'{description} 为旧的 .xls 格式，openpyxl 不支持，请另存为 .xlsx 后重试') from exc
+        if file_ext in {'.xlsx', '.xlsm', '.xltx', '.xltm'} and not is_zip:
+            raise Exception(f'{description} 文件并非有效的 ZIP 格式，尽管扩展名为 {file_ext}，请确认文件是有效的 Office Open XML 文件') from exc
+        if signature is None and file_ext == '.xlsx':
+            raise Exception(f'{description} 文件头不合法，尽管扩展名为 .xlsx，但它不是有效的 Excel 文件') from exc
+        raise
+
 # 标准语言顺序
 LANGUAGE_ORDER = [
     "中文（CN）", "英文（EN）English", "德语(DE)Deutsch",
@@ -32,7 +66,8 @@ LANGUAGE_ORDER = [
     "巴西葡语(BR)Português", "俄语（Pyc）Русский", "土耳其语(TR)Turkish",
     "日语(JP)日本語", "韩语(KR)한국어", "阿拉伯语عربية", "繁体中文",
     "波兰语（PL）Polski","越南语（VI）Tiếng Việt","印尼语（ID）Bahasa Indonesia",
-    "泰语（TH）ไทย","马来语（MS）Bahasa Melayu","希伯来语（HE）עברית","南非语（AF）Afrikaans"
+    "泰语（TH）ไทย","马来语（MS）Bahasa Melayu","希伯来语（HE）עברית","南非语（AF）Afrikaans",
+    "印地语(HI)Hindi"
 ]
 
 # 存储任务状态
@@ -366,8 +401,8 @@ def compare_excel_files(source_path, trans_path, selected_languages, task_id):
         tasks[task_id]['message'] = '正在加载Excel文件...'
 
         # 加载工作簿
-        source_wb = openpyxl.load_workbook(source_path, data_only=True)
-        trans_wb = openpyxl.load_workbook(trans_path, data_only=True)
+        source_wb = load_excel_workbook(source_path, description='源文件')
+        trans_wb = load_excel_workbook(trans_path, description='翻译文件')
         output_wb = openpyxl.Workbook()
 
         source_ws = source_wb.active
@@ -428,15 +463,52 @@ def compare_excel_files(source_path, trans_path, selected_languages, task_id):
         logger.info(f"翻译文件表头: {', '.join(trans_headers)}")
         logger.info("=" * 50)
 
-        # 构建键映射 - 使用第一列作为键名
+        # 构建键映射 - 自动识别中文列作为键名列
+        def detect_chinese_key_column(ws, file_name):
+            # 优先匹配明确的中文列标题
+            for col in range(1, ws.max_column + 1):
+                header = ws.cell(row=1, column=col).value
+                if header and isinstance(header, str):
+                    header_str = header.strip()
+                    header_lower = header_str.lower()
+                    if "中文" in header_str or "chinese" in header_lower or "cn" == header_lower:
+                        return col
+
+            # 如果标题无法明确识别，基于内容检测中文列
+            best_col = None
+            best_score = -1.0
+            for col in range(1, ws.max_column + 1):
+                total_count = 0
+                chinese_count = 0
+                unique_values = set()
+                for row in range(2, min(ws.max_row + 1, 51)):
+                    cell_value = ws.cell(row=row, column=col).value
+                    if isinstance(cell_value, str):
+                        cell_text = cell_value.strip()
+                        if not cell_text:
+                            continue
+                        total_count += 1
+                        unique_values.add(cell_text)
+                        if re.search(r'[\u4e00-\u9fff]', cell_text):
+                            chinese_count += 1
+                if total_count == 0:
+                    continue
+                chinese_ratio = chinese_count / total_count
+                unique_ratio = len(unique_values) / total_count
+                score = chinese_ratio * 0.75 + unique_ratio * 0.25
+                if score > best_score:
+                    best_score = score
+                    best_col = col
+            return best_col if best_col is not None else 1
+
         def build_key_map(ws, file_name):
             key_map = {}
             key_to_row = {}
             logger.info(f"\n开始构建 {file_name} 键映射:")
 
-            # 明确使用第一列作为键名
-            key_column = 1
-            logger.info(f"使用第1列作为键名列")
+            # 自动识别中文列作为键名列
+            key_column = detect_chinese_key_column(ws, file_name)
+            logger.info(f"自动识别键名列: 第{key_column}列")
 
             # 收集所有键名
             keys_found = []
@@ -1150,7 +1222,7 @@ def extract_error_codes_from_excel(file_path, selected_languages):
     """从Excel文件中提取错误码和对应的翻译"""
     wb = None
     try:
-        wb = openpyxl.load_workbook(file_path, data_only=True)
+        wb = load_excel_workbook(file_path, description='错误码文件')
         ws = wb.active
 
         # 构建语言列映射
@@ -1242,44 +1314,80 @@ def error_code_check():
                 tasks[task_id]['progress'] = 10
                 tasks[task_id]['message'] = '正在加载源文件...'
 
+                logger.info(f'加载 error-code 源文件: path={source_path}, ext={os.path.splitext(source_path)[1]}, size={os.path.getsize(source_path)}')
+                logger.info(f'加载 error-code 翻译文件: path={trans_path}, ext={os.path.splitext(trans_path)[1]}, size={os.path.getsize(trans_path)}')
+
                 # 加载源文件
-                wb_source = openpyxl.load_workbook(source_path, data_only=True)
+                wb_source = load_excel_workbook(source_path, description='错误码源文件')
                 ws_source = wb_source.active
 
                 # 加载翻译文件
-                wb_trans = openpyxl.load_workbook(trans_path, data_only=True)
+                wb_trans = load_excel_workbook(trans_path, description='错误码翻译文件')
                 ws_trans = wb_trans.active
 
                 tasks[task_id]['progress'] = 20
                 tasks[task_id]['message'] = '正在识别语言列...'
 
                 # 构建语言列映射
-                def build_lang_column_map(ws):
+                def normalize_header(text):
+                    """规范化列头，处理不同的括号风格和空格"""
+                    if not text:
+                        return ""
+                    # 统一括号风格：中英混合括号 -> 全中文括号
+                    text = text.replace('（', '（').replace('）', '）')  # 转换为全中文括号
+                    text = text.replace('(', '（').replace(')', '）')    # 英文括号也转为中文
+                    # 移除多余空格和换行
+                    text = text.replace('\n', '').strip()
+                    return text
+
+                def build_lang_column_map(ws, file_name):
                     lang_map = {}
+                    logger.info(f"\n【{file_name}】列头扫描:")
                     for col in range(1, ws.max_column + 1):
                         header = ws.cell(row=1, column=col).value
+                        header_str = str(header).strip() if header else ""
+                        norm_header = normalize_header(header_str)
+                        logger.info(f"  第{col}列: {repr(header_str)} -> {repr(norm_header)}")
+                        
                         if header and isinstance(header, str):
                             header_str = header.strip()
+                            norm_header = normalize_header(header_str)
                             for lang in selected_languages:
-                                if lang in header_str:
+                                # 先尝试精确匹配
+                                if lang in header_str or lang == norm_header:
                                     lang_map[lang] = col
+                                    logger.info(f"    ✓ 匹配到语言: {lang}")
                                     break
+                                # 再尝试规范化后的匹配
+                                norm_lang = normalize_header(lang)
+                                if norm_lang in norm_header or norm_header in norm_lang or norm_lang == norm_header:
+                                    lang_map[lang] = col
+                                    logger.info(f"    ✓ 规范化匹配到语言: {lang}")
+                                    break
+                    logger.info(f"{file_name} 最终语言映射: {lang_map}")
                     return lang_map
 
-                source_lang_map = build_lang_column_map(ws_source)
-                trans_lang_map = build_lang_column_map(ws_trans)
+                logger.info(f"selected_languages: {selected_languages}")
+                source_lang_map = build_lang_column_map(ws_source, "源文件")
+                trans_lang_map = build_lang_column_map(ws_trans, "翻译文件")
 
                 # 找到中文列（用于键名匹配）
                 source_chinese_col = None
                 trans_chinese_col = None
 
+                logger.info("\n【查找中文列】")
                 for lang in selected_languages:
                     if '中文' in lang:
+                        logger.info(f"在 selected_languages 中找到: {repr(lang)}")
                         source_chinese_col = source_lang_map.get(lang)
                         trans_chinese_col = trans_lang_map.get(lang)
+                        logger.info(f"源文件中文列: {source_chinese_col}, 翻译文件中文列: {trans_chinese_col}")
                         break
 
                 if not source_chinese_col or not trans_chinese_col:
+                    logger.error(f"源文件中文列: {source_chinese_col}, 翻译文件中文列: {trans_chinese_col}")
+                    logger.error(f"源文件语言映射: {source_lang_map}")
+                    logger.error(f"翻译文件语言映射: {trans_lang_map}")
                     raise Exception("无法找到中文列")
 
                 tasks[task_id]['progress'] = 30
@@ -1374,9 +1482,18 @@ def error_code_check():
                 key_matches = {}  # 记录每个源键名匹配到的翻译键名
                 current_row = 2
 
-                for source_item in source_data:
+                logger.info(f"开始第一步匹配，源数据项数: {len(source_data)}, 翻译数据项数: {len(trans_data)}")
+
+                for idx, source_item in enumerate(source_data):
                     source_key = source_item['key']
                     source_chinese = source_item['chinese']
+
+                    # 定期更新进度
+                    if idx % max(1, len(source_data) // 10) == 0:
+                        progress = 60 + (idx / len(source_data)) * 10
+                        tasks[task_id]['progress'] = int(progress)
+                        tasks[task_id]['message'] = f'正在匹配第 {idx + 1}/{len(source_data)} 个键...'
+                        logger.info(f"匹配进度: {idx + 1}/{len(source_data)}")
 
                     # 记录起始行
                     if source_key not in key_matches:
@@ -1434,6 +1551,8 @@ def error_code_check():
                         key_matches[source_key]['similarity'] = best_similarity
                         key_matches[source_key]['trans_item'] = best_match
 
+                logger.info(f"第一步匹配完成，共匹配 {sum(1 for k in key_matches.values() if k['matched_key'] != '未匹配')} 个键")
+
                 tasks[task_id]['progress'] = 70
                 tasks[task_id]['message'] = '正在对比各语言内容...'
 
@@ -1442,11 +1561,20 @@ def error_code_check():
                 content_matches = 0
                 unmatched = 0
 
-                for source_item in source_data:
+                logger.info(f"开始第二步对比，源数据项数: {len(source_data)}, 选中语言数: {len(selected_languages)}")
+
+                for idx, source_item in enumerate(source_data):
                     source_key = source_item['key']
                     match_info = key_matches[source_key]
                     matched_key = match_info['matched_key']
                     trans_item = match_info.get('trans_item')
+
+                    # 定期更新进度
+                    if idx % max(1, len(source_data) // 10) == 0:
+                        progress = 70 + (idx / len(source_data)) * 15
+                        tasks[task_id]['progress'] = int(progress)
+                        tasks[task_id]['message'] = f'正在对比第 {idx + 1}/{len(source_data)} 个条目...'
+                        logger.info(f"对比进度: {idx + 1}/{len(source_data)}")
 
                     for lang in selected_languages:
                         source_value = source_item['translations'].get(lang, '')
@@ -1486,6 +1614,8 @@ def error_code_check():
                             'row': current_row
                         })
                         current_row += 1
+
+                logger.info(f"第二步对比完成，内容一致: {exact_matches}, 内容不一致: {content_matches}, 未匹配: {unmatched}")
 
                 tasks[task_id]['progress'] = 85
                 tasks[task_id]['message'] = '正在生成结果文件...'
@@ -1548,57 +1678,50 @@ def error_code_check():
                         for col in range(4, 6):
                             ws.cell(row=current_row, column=col).fill = red_fill
 
-                        # 合并源文件键名和匹配键名的单元格
-                        current_source_key = None
-                        start_row = 2
-                        end_row = 2
+                # 合并第一列（源文件键名）和第二列（匹配键名）
+                # 按 source_key 分组，计算每个键在 Excel 中的起始/结束行号
+                key_groups = {}
+                for idx, match in enumerate(matches):
+                    excel_row = idx + 2  # 第 1 行是表头，数据从第 2 行开始
+                    source_key = match['source_key']
+                    if source_key not in key_groups:
+                        key_groups[source_key] = {
+                            'start_row': excel_row,
+                            'end_row': excel_row,
+                            'matched_key': match['matched_key']
+                        }
+                    else:
+                        key_groups[source_key]['end_row'] = excel_row
 
-                        # 先对matches按source_key排序，确保同一个键的行是连续的
-                        for i, match in enumerate(matches):
-                            if current_source_key is None:
-                                current_source_key = match['source_key']
-                                start_row = match['row']
+                # 执行合并并设置样式
+                for source_key, group in key_groups.items():
+                    start_row = group['start_row']
+                    end_row = group['end_row']
 
-                            # 如果是最后一个元素或者下一个键不同，执行合并
-                            if i == len(matches) - 1 or matches[i + 1]['source_key'] != current_source_key:
-                                end_row = match['row']
+                    if end_row > start_row:
+                        # 合并第一列：源文件键名
+                        ws.merge_cells(start_row=start_row, start_column=1,
+                                       end_row=end_row, end_column=1)
+                        # 合并第二列：匹配键名
+                        ws.merge_cells(start_row=start_row, start_column=2,
+                                       end_row=end_row, end_column=2)
 
-                                if end_row > start_row:
-                                    # 合并源文件键名列
-                                    ws.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
-                                    cell = ws.cell(row=start_row, column=1)
-                                    cell.font = Font(bold=True)
-                                    cell.alignment = Alignment(vertical='center', horizontal='left')
+                    # 设置第一列样式
+                    cell_a = ws.cell(row=start_row, column=1)
+                    cell_a.font = Font(bold=True)
+                    cell_a.alignment = Alignment(vertical='center', horizontal='left')
 
-                                    # 合并匹配键名列
-                                    ws.merge_cells(start_row=start_row, start_column=2, end_row=end_row, end_column=2)
-                                    cell = ws.cell(row=start_row, column=2)
-                                    cell.font = Font(bold=True)
+                    # 设置第二列样式
+                    cell_b = ws.cell(row=start_row, column=2)
+                    cell_b.font = Font(bold=True)
+                    cell_b.alignment = Alignment(vertical='center', horizontal='left')
 
-                                    # 在匹配键名后添加匹配信息
-                                    match_info = key_matches.get(current_source_key, {})
-                                    if match_info.get('matched_key') != '未匹配':
-                                        cell.font = Font(bold=True, color='006400')
-                                        # 在H列添加详细匹配信息
-                                        info_cell = ws.cell(row=start_row, column=8)
-                                        info_cell.value = f"匹配方式: {match_info.get('match_type', '未知')}, 相似度: {match_info.get('similarity', 0)}%"
-                                        info_cell.font = Font(italic=True, size=9)
-                                    else:
-                                        cell.font = Font(bold=True, color='FF0000')
-
-                                # 重置，准备处理下一个键
-                                if i < len(matches) - 1:
-                                    current_source_key = matches[i + 1]['source_key']
-                                    start_row = matches[i + 1]['row']
-
-
-                        # 根据匹配类型设置颜色
-                        if match_info['matched_key'] != '未匹配':
-                            cell.font = Font(bold=True, color='006400')
-                            # 在合并单元格的旁边添加匹配信息
-                            info_cell = ws.cell(row=start_row, column=7)
-                            info_cell.value = f"匹配方式: {match_info['match_type']}, 相似度: {match_info['similarity']}%"
-                            info_cell.font = Font(italic=True, size=10)
+                    # 根据匹配结果设置颜色
+                    match_info = key_matches.get(source_key, {})
+                    if match_info.get('matched_key') != '未匹配':
+                        cell_b.font = Font(bold=True, color='006400')
+                    else:
+                        cell_b.font = Font(bold=True, color='FF0000')
 
                 # 添加统计信息
                 summary_row = ws.max_row + 3
