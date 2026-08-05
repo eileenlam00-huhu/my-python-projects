@@ -1,0 +1,19 @@
+{
+  "feishu_app_id": "",
+  "feishu_app_secret": "",
+  "users": {
+    "ou_1cada7dcad2baa88f51dee9f6229a8ac": {
+      "sheets": [
+        {
+          "name": "F022+NANO",
+          "wiki_token": "Y2U9wQmCCiSMmBkDvZ8ctEmfnnc",
+          "sheet_name": "F022+NANO"
+        }
+      ],
+      "schedule_times": [
+        "09:00",
+        "18:00"
+      ]
+    }
+  }
+}
