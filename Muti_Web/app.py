@@ -27,6 +27,34 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def normalize_for_compare(text):
+    """归一化文本用于"内容是否一致"的判定 (不改变实际显示/写入的内容)。
+
+    处理以下容易造成误判"不一致"的差异:
+    1. 两端空白 (含末尾空格、制表符、换行) -> strip
+    2. 转义反斜杠: 例如源文件为正常引号 " , 翻译文件被转义成 \\"
+       统一把 \\" -> " 、 \\' -> ' 、 \\\\ -> \\ , 使两者可比。
+    3. 连续空白折叠为单个空格 (末尾多空格/中间多空格不影响判定)。
+
+    Args:
+        text: 原始字符串 (可能为 None)。
+
+    Returns:
+        归一化后的字符串, 仅用于相等比较, 不用于写入单元格。
+    """
+    if text is None:
+        return ""
+    s = str(text)
+    # 1. 去除转义反斜杠: 先处理被转义的引号, 再处理双反斜杠
+    s = s.replace('\\"', '"').replace("\\'", "'")
+    s = s.replace('\\\\', '\\')
+    # 2. 折叠所有连续空白 (空格/制表/换行) 为单个空格
+    s = re.sub(r'\s+', ' ', s)
+    # 3. 去除两端空白
+    s = s.strip()
+    return s
+
+
 def get_excel_file_signature(file_path):
     try:
         if zipfile.is_zipfile(file_path):
@@ -66,13 +94,8 @@ LANGUAGE_ORDER = [
     "巴西葡语(BR)Português", "俄语（Pyc）Русский", "土耳其语(TR)Turkish",
     "日语(JP)日本語", "韩语(KR)한국어", "阿拉伯语عربية", "繁体中文",
     "波兰语（PL）Polski","越南语（VI）Tiếng Việt","印尼语（ID）Bahasa Indonesia",
-<<<<<<< HEAD
-    "泰语（TH）ไทย","马来语（MS）Bahasa Melayu","希伯来语（HE）עברית","南非语（AF）Afrikaans",
-    "印地语(HI)Hindi"
-=======
     "泰语（TH）ไทย","马来语（MS）Bahasa Melayu","希伯来语（HE）עברית",
     "南非语（AF）Afrikaans", "印地语 （HI）Hindi"
->>>>>>> 279544b7a5b053ef1d4967f7867cd5628c26f474
 ]
 
 # 存储任务状态
@@ -854,6 +877,11 @@ def compare_excel_files(source_path, trans_path, selected_languages, task_id):
                 output_ws.cell(row=output_row, column=4).value = source_content
                 output_ws.cell(row=output_row, column=5).value = trans_content
 
+                # 归一化后再判定"是否一致"(忽略末尾空格、转义反斜杠、多余空白差异)
+                # 注意: 单元格里写入的仍是原始 source_content/trans_content, 只有判定用归一化值
+                source_norm = normalize_for_compare(source_content)
+                trans_norm = normalize_for_compare(trans_content)
+
                 # 判断对比结果并设置样式
                 if not trans_row:
                     result = "键名缺失"
@@ -861,12 +889,12 @@ def compare_excel_files(source_path, trans_path, selected_languages, task_id):
                 elif trans_content.startswith("【翻译文件缺少"):
                     result = "语言列缺失"
                     output_ws.cell(row=output_row, column=6).fill = YELLOW_FILL
-                elif source_content and trans_content and source_content == trans_content:
+                elif source_norm and trans_norm and source_norm == trans_norm:
                     result = "一致"
                     output_ws.cell(row=output_row, column=4).fill = GREEN_FILL
                     output_ws.cell(row=output_row, column=5).fill = GREEN_FILL
                     matched_count += 1
-                elif not source_content and not trans_content:
+                elif not source_norm and not trans_norm:
                     result = "均为空"
                     output_ws.cell(row=output_row, column=6).fill = GREEN_FILL
                 else:
@@ -1353,28 +1381,90 @@ def error_code_check():
 
                 def build_lang_column_map(ws, file_name):
                     lang_map = {}
+                    # 关键词映射表：每种语言对应多个可能的列头关键词
+                    lang_keywords = {
+                        "中文（CN）": ["中文", "chinese", "cn", "简体"],
+                        "英文（EN）English": ["英文", "english", "en"],
+                        "德语(DE)Deutsch": ["德语", "german", "deutsch", "de"],
+                        "西语（ES）Español": ["西语", "spanish", "español", "es"],
+                        "法语(FR)Français": ["法语", "french", "français", "fr"],
+                        "意大利语(IT)Italiano": ["意大利语", "italian", "italiano", "it"],
+                        "巴西葡语(BR)Português": ["巴西葡语", "portuguese", "português", "br"],
+                        "俄语（Pyc）Русский": ["俄语", "russian", "русский", "ru", "pyc"],
+                        "土耳其语(TR)Turkish": ["土耳其语", "turkish", "tr"],
+                        "日语(JP)日本語": ["日语", "japanese", "日本語", "jp"],
+                        "韩语(KR)한국어": ["韩语", "korean", "한국어", "kr"],
+                        "阿拉伯语عربية": ["阿拉伯语", "arabic", "عربية", "عربي", "ar"],
+                        "繁体中文": ["繁体", "traditional", "繁體"],
+                        "波兰语（PL）Polski": ["波兰语", "polish", "polski", "pl"],
+                        "越南语（VI）Tiếng Việt": ["越南语", "vietnamese", "tiếng việt", "vi"],
+                        "印尼语（ID）Bahasa Indonesia": ["印尼语", "indonesian", "bahasa indonesia", "id"],
+                        "泰语（TH）ไทย": ["泰语", "thai", "ไทย", "th"],
+                        "马来语（MS）Bahasa Melayu": ["马来语", "malay", "bahasa melayu", "ms"],
+                        "希伯来语（HE）עברית": ["希伯来语", "hebrew", "עברית", "he"],
+                        "南非语（AF）Afrikaans": ["南非语", "afrikaans", "af"],
+                        "印地语 （HI）Hindi": ["印地语", "hindi", "hi"],
+                    }
+
                     logger.info(f"\n【{file_name}】列头扫描:")
                     for col in range(1, ws.max_column + 1):
                         header = ws.cell(row=1, column=col).value
                         header_str = str(header).strip() if header else ""
                         norm_header = normalize_header(header_str)
                         logger.info(f"  第{col}列: {repr(header_str)} -> {repr(norm_header)}")
-                        
+
                         if header and isinstance(header, str):
                             header_str = header.strip()
                             norm_header = normalize_header(header_str)
+                            header_lower = header_str.lower()
+                            norm_header_lower = norm_header.lower()
+
+                            matched = False
                             for lang in selected_languages:
-                                # 先尝试精确匹配
+                                if lang in lang_map:
+                                    continue  # 已经匹配过的语言跳过
+
+                                # 1. 精确匹配
                                 if lang in header_str or lang == norm_header:
                                     lang_map[lang] = col
-                                    logger.info(f"    ✓ 匹配到语言: {lang}")
+                                    logger.info(f"    ✓ 精确匹配到语言: {lang}")
+                                    matched = True
                                     break
-                                # 再尝试规范化后的匹配
+
+                                # 2. 规范化匹配
                                 norm_lang = normalize_header(lang)
                                 if norm_lang in norm_header or norm_header in norm_lang or norm_lang == norm_header:
                                     lang_map[lang] = col
                                     logger.info(f"    ✓ 规范化匹配到语言: {lang}")
+                                    matched = True
                                     break
+
+                                # 3. 关键词回退匹配
+                                keywords = lang_keywords.get(lang, [])
+                                for keyword in keywords:
+                                    kw_lower = keyword.lower()
+                                    # 精确等于关键词（忽略大小写）
+                                    if header_lower == kw_lower or norm_header_lower == kw_lower:
+                                        lang_map[lang] = col
+                                        logger.info(f"    ✓ 关键词精确匹配: '{keyword}' -> {lang}")
+                                        matched = True
+                                        break
+                                    # 包含关键词匹配
+                                    if len(keyword) <= 2:
+                                        # 短关键词(如"pl","vi")只在列头较短时做包含匹配，防止误匹配
+                                        if len(header_str) <= 5 and (kw_lower in header_lower or kw_lower in norm_header_lower):
+                                            lang_map[lang] = col
+                                            logger.info(f"    ✓ 短关键词匹配: '{keyword}' -> {lang}")
+                                            matched = True
+                                            break
+                                    elif kw_lower in header_lower or kw_lower in norm_header_lower:
+                                        lang_map[lang] = col
+                                        logger.info(f"    ✓ 关键词包含匹配: '{keyword}' -> {lang}")
+                                        matched = True
+                                        break
+                                if matched:
+                                    break
+
                     logger.info(f"{file_name} 最终语言映射: {lang_map}")
                     return lang_map
 
@@ -1594,18 +1684,22 @@ def error_code_check():
                         if trans_item and lang in trans_item['translations']:
                             trans_value = trans_item['translations'][lang]
 
+                        # 归一化后判定(忽略末尾空格、转义反斜杠、多余空白差异)
+                        source_norm = normalize_for_compare(source_value)
+                        trans_norm = normalize_for_compare(trans_value)
+
                         # 判断匹配类型
                         if matched_key != '未匹配' and trans_item:
-                            if source_value and trans_value and source_value == trans_value:
+                            if source_norm and trans_norm and source_norm == trans_norm:
                                 match_type = f'内容一致'
                                 exact_matches += 1
-                            elif source_value and trans_value:
+                            elif source_norm and trans_norm:
                                 match_type = f'内容不一致'
                                 content_matches += 1
-                            elif source_value and not trans_value:
+                            elif source_norm and not trans_norm:
                                 match_type = f'翻译缺失'
                                 unmatched += 1
-                            elif not source_value and trans_value:
+                            elif not source_norm and trans_norm:
                                 match_type = f'源文件缺失'
                                 unmatched += 1
                             else:
